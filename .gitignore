@@ -34,3 +34,17 @@ fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
+
+# Build Products & App Bundles
+*.app/
+*.appex/
+*.dSYM/
+*.ipa/
+*.framework/
+
+# Local Scratch & Development Files
+scratch/
+*.swp
+*~
+.DS_Store
+

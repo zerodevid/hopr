@@ -25,13 +25,20 @@ Aplikasi ini menyediakan 3 mode utama yang dioptimalkan untuk efisiensi pengetik
    - Tahan tombol `Shift` untuk kecepatan scroll turbo (*Dash Speed*).
 
 3. **Search Mode (`Cmd+Shift+/`)**
-   - Membuka bar pencarian HUD transparan di tengah layar.
-   - Cari elemen UI berdasarkan judul atau jenis elemennya secara real-time.
-   - Navigasi hasil pencarian menggunakan tombol arah `Up` / `Down` dan klik elemen menggunakan tombol `Enter`.
+   - Membuka panel pencarian HUD transparan berbasis `NSVisualEffectView` di tengah layar dengan animasi masuk/keluar yang halus.
+   - Pencarian elemen UI secara real-time berdasarkan judul (*title*) atau tipe/peran aksesibilitas (*role*).
+   - Menampilkan dropdown hasil pencarian (maksimal 6 elemen teratas) menggunakan komponen baris kustom `SearchResultRowView` dengan indikator badge label huruf.
+   - Navigasi hasil pencarian dengan tombol arah `Up` / `Down` untuk memindahkan fokus.
+   - Kotak sorotan premium (`HighlightBoxView`) berpindah secara dinamis di layar untuk menandai elemen UI yang sedang dipilih di latar belakang.
+   - Menekan `Enter` akan mengonfirmasi pilihan, menutup panel secara instan, dan mensimulasikan klik pada elemen yang disorot.
 
 4. **HUD Mode Indicator & Menu Bar**
-   - Indikator visual melayang di bagian atas layar menunjukkan mode aktif saat ini.
+   - Indikator visual melayang di bagian atas layar menunjukkan mode aktif saat ini menggunakan visualisasi efek kaca (*vibrancy*).
    - Menu bar menyediakan akses cepat untuk mengaktifkan mode, membuka preferensi, atau menutup aplikasi.
+
+5. **Audio & Sound Feedback**
+   - Integrasi efek suara taktil instan ketika berpindah mode (memainkan `click7.m4a`) dan mengeksekusi klik atau aktivasi elemen (memainkan `click1.m4a`).
+   - Pustaka audio menggunakan `NSSound` dengan mekanisme resolusi path yang fleksibel (lokal maupun absolut).
 
 ---
 
