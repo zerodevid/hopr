@@ -81,33 +81,36 @@ Skrip ini mempermudah proses analisis dan debugging elemen UI mana saja yang dap
 ## 📁 Struktur Kode Sumber
 
 ```
-Sources/HoprClone/
-├── App/
-│   ├── main.swift                 # Entry point aplikasi & konfigurasi tipe .accessory
-│   └── AppDelegate.swift          # Pengelolaan lifecycle, status bar menu, & koordinasi mode
-├── Core/
-│   ├── AccessibilityService.swift # Pemindaian pohon aksesibilitas, filtering, & caching
-│   ├── UIElement.swift            # Wrapper AXUIElement & penanganan aksi klik (simulasi & native)
-│   ├── ScrollableArea.swift       # Representasi area scrollable
-│   └── Permissions.swift          # Utilitas pemeriksaan izin Aksesibilitas macOS
-├── Input/
-│   ├── HotkeyManager.swift        # Intersepsi input keyboard global melalui Event Taps
-│   └── KeyMapper.swift            # Penghasil label huruf dinamis (A-Z, AA-ZZ)
-├── Modes/
-│   ├── ModeController.swift       # State machine pengelola mode aktif (.idle, .hint, .scroll, .search)
-│   ├── HintMode.swift             # Logika pencocokan input string label & eksekusi klik
-│   ├── ScrollMode.swift           # Mekanisme navigasi scroll & timer perulangan scroll
-│   └── SearchMode.swift           # Pencarian elemen UI berbasis teks & HUD pencarian
-├── Models/
-│   └── AppSettings.swift          # Model preferensi pengguna berbasis @AppStorage
-├── Overlay/
-│   ├── OverlayWindowController.swift # Manajer rendering jendela overlay di atas semua aplikasi
-│   ├── LabelView.swift            # Gambar balon label penunjuk elemen UI
-│   ├── ScrollAreaBoxView.swift    # Border visual untuk area scroll
-│   └── ModeIndicator.swift        # Pill HUD penanda status mode aktif
-└── Utils/
-    ├── Logger.swift               # Utilitas pencatatan log
-    └── Notifications.swift        # Hub observasi notifikasi antar mode
+.
+├── Resources/                     # Aset suara (click1.m4a, click7.m4a, dll.)
+└── Sources/HoprClone/
+    ├── App/
+    │   ├── main.swift                 # Entry point aplikasi & konfigurasi tipe .accessory
+    │   └── AppDelegate.swift          # Pengelolaan lifecycle, status bar menu, & koordinasi mode
+    ├── Core/
+    │   ├── AccessibilityService.swift # Pemindaian pohon aksesibilitas, filtering, & caching
+    │   ├── UIElement.swift            # Wrapper AXUIElement & penanganan aksi klik (simulasi & native)
+    │   ├── ScrollableArea.swift       # Representasi area scrollable
+    │   └── Permissions.swift          # Utilitas pemeriksaan izin Aksesibilitas macOS
+    ├── Input/
+    │   ├── HotkeyManager.swift        # Intersepsi input keyboard global melalui Event Taps
+    │   └── KeyMapper.swift            # Penghasil label huruf dinamis (A-Z, AA-ZZ)
+    ├── Modes/
+    │   ├── ModeController.swift       # State machine pengelola mode aktif (.idle, .hint, .scroll, .search)
+    │   ├── HintMode.swift             # Logika pencocokan input string label & eksekusi klik
+    │   ├── ScrollMode.swift           # Mekanisme navigasi scroll & timer perulangan scroll
+    │   └── SearchMode.swift           # Pencarian elemen UI berbasis teks & HUD pencarian
+    ├── Models/
+    │   └── AppSettings.swift          # Model preferensi pengguna berbasis @AppStorage
+    ├── Overlay/
+    │   ├── OverlayWindowController.swift # Manajer rendering jendela overlay di atas semua aplikasi
+    │   ├── LabelView.swift            # Gambar balon label penunjuk elemen UI (tema kuning premium)
+    │   ├── ScrollAreaBoxView.swift    # Border visual dan badge nomor untuk area scroll
+    │   └── ModeIndicator.swift        # Pill HUD penanda status mode aktif dengan visual efek kaca
+    └── Utils/
+        ├── Logger.swift               # Utilitas pencatatan log
+        ├── Notifications.swift        # Hub observasi notifikasi antar mode
+        └── SoundManager.swift         # Pengelola audio/umpan balik efek suara asinkron
 ```
 
 ---

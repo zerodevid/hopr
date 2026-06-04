@@ -48,6 +48,11 @@ Layanan ini bertugas melakukan penelusuran (*tree traversal*) secara rekursif te
 Sebuah model pembungkus (`struct wrapper`) untuk pointer internal `AXUIElement` macOS.
 *   **Aksi Simulasi & Native**: Ketika label dipilih, `performAction()` akan mencoba memicu aksi aksesibilitas bawaan terlebih dahulu (seperti `AXPress`, `AXOpen`, `AXConfirm`, atau `AXPick`). Jika aplikasi target tidak menanggapi aksi tersebut, sistem secara otomatis beralih menggunakan simulasi tingkat rendah, yaitu mengirimkan event mouse down dan mouse up secara instan pada koordinat tengah elemen (`simulateClick()`).
 
+#### `SoundManager.swift`
+Layanan utilitas audio global yang mengelola efek suara taktil (*tactile feedback*) secara asinkron menggunakan API `NSSound` macOS.
+*   **Umpan Balik Suara Instan**: Memainkan suara transisi saat berpindah mode (`playEnterMode()` memainkan `click7.m4a`) dan saat terjadi aktivasi/klik elemen (`playActivate()` memainkan `click1.m4a`). Tombol pengetikan reguler sengaja dibuat hening agar alur kerja tetap fokus dan tenang.
+*   **Mekanisme Resolusi Path Pintar**: Memeriksa folder `Resources/` di direktori kerja saat ini (*current directory*) terlebih dahulu untuk mengakomodasi lingkungan pengembangan lokal sebelum beralih ke jalur absolut cadangan (*fallback path*) di `/Users/macbook/Documents/Project/clone_hopr/Resources/`.
+
 ---
 
 ### 2.2 Input Handling & Event Distribution
@@ -96,6 +101,13 @@ Merupakan komponen krusial yang mengontrol antarmuka grafis di layar.
 *   **Konversi Koordinat**:
     Sistem aksesibilitas macOS menggunakan titik asal (`origin`) di sudut kiri atas layar ($y$ bernilai positif ke bawah). Sementara kerangka kerja grafis AppKit/Cocoa menggunakan titik asal di sudut kiri bawah layar ($y$ bernilai positif ke atas). `OverlayWindowController` melakukan kalkulasi pembalikan sumbu-$y$ berdasarkan tinggi monitor aktif (`screenHeight - y - height`) serta mendukung deteksi layar multi-monitor (`bestScreen`).
 
+#### `LabelView.swift` & `HighlightBoxView.swift` & `ScrollAreaBoxView.swift`
+Komponen visual kustom yang dirancang untuk estetika modern, responsif, dan performa tinggi:
+*   **`LabelView.swift`**: Menampilkan balon kata berisi kode label dengan warna kuning cerah premium terinspirasi dari aplikasi *Hopr*. Sudut visual dibuat lebih tajam (`xRadius: 2.5`), dan letak pointer vertikal disesuaikan secara cerdas (`above` vs `below` elemen) untuk mencegah pemotongan di batas layar. Menerapkan animasi transformasi skala (`scale = 1.4x`) dan pemudaran opacity asinkron melalui CoreAnimation saat elemen berhasil dieksekusi.
+*   **`HighlightBoxView`**: Menggambar kotak sorot semi-transparan dengan ketebalan border 3.0pt beraksen warna kontrol sistem (`controlAccentColor`), lengkap dengan efek cahaya (*drop shadow blur = 8.0*) untuk memperjelas elemen terfokus pada Search Mode. Pergeseran posisi antar elemen menggunakan animasi koordinat halus dari `NSAnimationContext`.
+*   **`ScrollAreaBoxView.swift`**: Menggambar bingkai area scroll aktif dengan skema warna hijau taktil (`systemGreen`) atau aksen sistem, serta badge pill nomor urutan di pojok kiri atas. Menerapkan efek animasi memantul (*bounce scale 1.06x*) instan saat area gulir dipilih oleh pengguna.
+*   **`ModeIndicator.swift`**: HUD melayang yang menampilkan status mode aktif saat ini. Menggunakan `NSVisualEffectView` dengan material `.hudWindow` untuk rendering efek kaca transparan yang menyatu dengan estetika macOS Ventura+.
+
 ---
 
 ### 2.4 Mode Operasional & Logika State
@@ -105,8 +117,23 @@ Aplikasi dibagi menjadi 3 mode operasional independen yang dikoordinasikan oleh 
 | Nama Mode | Trigger Keyboard | Deskripsi Logika Internal |
 | :--- | :--- | :--- |
 | **Hint Mode** | `Cmd+Shift+Space` | 1. Memindai seluruh elemen UI aktif.<br>2. Menghasilkan label huruf unik (A, B, C... AA, AB...) menggunakan algoritma `KeyMapper`.<br>3. Menerima input huruf pengguna secara beruntun.<br>4. Menyaring label yang cocok dengan awalan pengetikan.<br>5. Memicu aksi klik jika terjadi kecocokan tepat (*exact match*) atau sisa 1 kandidat.<br>6. Keluar ke mode `idle`. |
-| **Scroll Mode** | `Cmd+Shift+J` | 1. Mendeteksi elemen kontainer dengan peran `AXScrollArea` atau `AXWebArea`.<br>2. Menampilkan angka indeks (`1-9`) di atas area tersebut.<br>3. Pengguna menekan angka untuk memilih area aktif.<br>4. Setelah terpilih, sistem mengarahkan kursor virtual ke tengah area tersebut.<br>5. Menerima input tombol Vim (`J`, `K`, `H`, `L`) untuk mengirimkan event putar roda scroll virtual (`scrollWheelEvent2Source`). |
-| **Search Mode** | `Cmd+Shift+/` | 1. Membuka panel pencarian mengambang berbasis `NSPanel` di tengah layar.<br>2. Pengguna mengetik teks pencarian (misalnya "Save", "Cancel").<br>3. Elemen yang memiliki kecocokan judul disorot di layar dengan label penunjuk.<br>4. Pengguna menekan tombol arah untuk menavigasi elemen dan menekan `Enter` untuk mengeksekusinya. |
+| **Scroll Mode** | `Cmd+Shift+J` | 1. Mendeteksi elemen kontainer dengan peran `AXScrollArea` atau `AXWebArea`.<br>2. Menampilkan angka indeks (`1-9`) di atas area tersebut.<br>3. Pengguna menekan angka untuk memilih area aktif.<br>4. Setelah terpilih, sistem mengarahkan kursor virtual ke tengah area tersebut.<br>5. Memasuki loop fisika akselerasi kontinu menggunakan input tombol Vim (`J`, `K`, `H`, `L`) untuk mengirimkan event scroll pixel kustom. |
+| **Search Mode** | `Cmd+Shift+/` | 1. Membuka panel pencarian mengambang berbasis `NSVisualEffectView` di tengah layar.<br>2. Pengguna mengetik kata kunci pencarian (berdasarkan judul atau jenis peran elemen).<br>3. Menampilkan daftar dropdown dinamis kustom (maksimal 6 baris teratas) dengan indikator label huruf.<br>4. Navigasi baris aktif menggunakan tombol `Up` / `Down` yang disinkronkan dengan kotak sorot visual (`HighlightBoxView`) di layar.<br>5. Menekan `Enter` akan memicu klik asinkron dan menutup panel. |
+
+#### 2.4.1 Mesin Simulasi Fisika Scroll (Scroll Physics Engine)
+Aplikasi tidak menerapkan pergeseran scroll yang kaku (statis), melainkan menggunakan model matematika fisika kontinu untuk meniru kehalusan gerak *inertial scrolling* macOS asli:
+*   **Loop Pembaruan (Physics Loop)**: Menggunakan `Timer` internal yang berdetak setiap `0.016 detik` (menghasilkan ~60 frame per detik) untuk menghitung perubahan kecepatan (*velocity*) asinkron.
+*   **Akselerasi & Hambatan**:
+    *   Saat tombol arah Vim ditekan, gaya akselerasi sebesar `accelRate = 0.20` per frame diterapkan pada sumbu kecepatan hingga menyentuh batas maksimum `baseSpeed * 2.5`.
+    *   Pengubah kecepatan dinamis diambil dari model `AppSettings` (`scrollSpeed` dasar atau `dashSpeed` turbo saat tombol `Shift` ditekan).
+    *   Ketika tombol dilepas, gaya gesekan (*friction = 0.85*) diterapkan secara eksponensial di setiap detak frame hingga kecepatan menurun di bawah ambang batas minimal `0.1` piksel/frame, di mana gerakan dihentikan total.
+*   **Simulasi Event**: Event gulir dikirim langsung ke sistem menggunakan `CGEvent(scrollWheelEvent2Source:nil, units:.pixel, ...)` untuk mengontrol piksel per piksel secara mulus.
+
+#### 2.4.2 Dropdown Hasil Pencarian & Animasi Resizing
+HUD pencarian dioptimalkan agar terasa intuitif dan premium:
+*   **Struktur Visual Dropdown**: Menggunakan `SearchResultRowView` dengan tata letak horizontal yang memisahkan badge huruf label di sebelah kiri, judul elemen di tengah, dan tipe peran aksesibilitas (`AXRole` yang dibersihkan dari prefiks "AX") di sebelah kanan.
+*   **Dukungan Scroll Jendela Pandang (View Porting)**: Dropdown membatasi rendering visual maksimal 6 baris demi performa dan ukuran. Jika hasil pencarian melebihi 6 item, sistem menggunakan indeks virtual `firstVisibleIndex` untuk menggeser baris yang ditampilkan sesuai pergerakan navigasi keyboard pengguna.
+*   **Animasi Resizing Dinamis**: Ketinggian jendela pencarian (`NSPanel`) diubah secara dinamis tergantung pada jumlah hasil yang cocok. Transisi tinggi jendela menggunakan blok `NSAnimationContext.runAnimationGroup` dengan durasi `0.15 detik` dan kurva kecepatan `.easeOut` untuk kenyamanan visual.
 
 ---
 
