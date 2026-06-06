@@ -1,12 +1,12 @@
-# 📘 Analisis Sistem & Dokumentasi Arsitektur: HoprClone
+# 📘 Analisis Sistem & Dokumentasi Arsitektur: Hopr
 
-Dokumen ini menyajikan analisis mendalam mengenai arsitektur perangkat lunak, pola desain, alur data, serta keputusan rekayasa yang diimplementasikan pada proyek **HoprClone**. Analisis ini disusun dari sudut pandang **System Analyst** untuk memberikan pemahaman teknis komprehensif bagi pengembang yang ingin memelihara atau memperluas aplikasi.
+Dokumen ini menyajikan analisis mendalam mengenai arsitektur perangkat lunak, pola desain, alur data, serta keputusan rekayasa yang diimplementasikan pada proyek **Hopr**. Analisis ini disusun dari sudut pandang **System Analyst** untuk memberikan pemahaman teknis komprehensif bagi pengembang yang ingin memelihara atau memperluas aplikasi.
 
 ---
 
 ## 1. Arsitektur Sistem Umum
 
-HoprClone dirancang sebagai aplikasi utilitas macOS berkinerja tinggi yang berjalan di latar belakang (tipe agen/`.accessory`). Aplikasi ini tidak memiliki jendela utama saat pertama kali dibuka, melainkan mengandalkan sistem *floating overlay* transparan yang muncul secara interaktif.
+Hopr dirancang sebagai aplikasi utilitas macOS berkinerja tinggi yang berjalan di latar belakang (tipe agen/`.accessory`). Aplikasi ini tidak memiliki jendela utama saat pertama kali dibuka, melainkan mengandalkan sistem *floating overlay* transparan yang muncul secara interaktif.
 
 Sistem terdiri dari empat pilar utama:
 

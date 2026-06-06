@@ -2,12 +2,12 @@
 import PackageDescription
 
 let package = Package(
-    name: "HoprClone",
+    name: "Hopr",
     platforms: [.macOS(.v13)],
     targets: [
         .executableTarget(
-            name: "HoprClone",
-            path: "Sources/HoprClone",
+            name: "Hopr",
+            path: "Sources/Hopr",
             linkerSettings: [
                 .linkedFramework("Cocoa"),
                 .linkedFramework("Carbon"),

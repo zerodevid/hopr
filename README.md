@@ -1,6 +1,6 @@
-# HoprClone 🎹🖱️
+# Hopr 🎹🖱️
 
-**HoprClone** adalah aplikasi utilitas macOS yang dirancang untuk mempercepat alur kerja dengan memungkinkan kontrol keyboard penuh atas antarmuka pengguna grafis (GUI) tanpa menyentuh mouse. Terinspirasi oleh aplikasi *Hopr*, proyek ini menggunakan **Accessibility API (ApplicationServices)** dan **CoreGraphics Event Taps** untuk berinteraksi dengan elemen UI di layar secara instan.
+**Hopr** adalah aplikasi utilitas macOS yang dirancang untuk mempercepat alur kerja dengan memungkinkan kontrol keyboard penuh atas antarmuka pengguna grafis (GUI) tanpa menyentuh mouse. Terinspirasi oleh aplikasi *Hopr*, proyek ini menggunakan **Accessibility API (ApplicationServices)** dan **CoreGraphics Event Taps** untuk berinteraksi dengan elemen UI di layar secara instan.
 
 Aplikasi ini berjalan sebagai aplikasi latar belakang tanpa ikon Dock (tipe `.accessory`) dengan ikon menu bar yang elegan, dan siap digunakan kapan saja melalui pintasan keyboard global.
 
@@ -64,7 +64,7 @@ Untuk mengompilasi biner rilis teroptimasi:
 ```bash
 swift build -c release
 ```
-Biner hasil kompilasi akan berada di direktori `.build/release/HoprClone`.
+Biner hasil kompilasi akan berada di direktori `.build/release/Hopr`.
 
 ---
 
@@ -83,7 +83,7 @@ Skrip ini mempermudah proses analisis dan debugging elemen UI mana saja yang dap
 ```
 .
 ├── Resources/                     # Aset suara (click1.m4a, click7.m4a, dll.)
-└── Sources/HoprClone/
+└── Sources/Hopr/
     ├── App/
     │   ├── main.swift                 # Entry point aplikasi & konfigurasi tipe .accessory
     │   └── AppDelegate.swift          # Pengelolaan lifecycle, status bar menu, & koordinasi mode

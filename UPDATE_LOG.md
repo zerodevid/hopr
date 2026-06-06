@@ -1,6 +1,6 @@
-# 📝 Catatan Pembaruan & Fitur Baru: HoprClone
+# 📝 Catatan Pembaruan & Fitur Baru: Hopr
 
-Dokumen ini mendokumentasikan serangkaian pembaruan, peningkatan, dan perbaikan bug terbaru yang diimplementasikan pada **HoprClone**. Pembaruan ini meningkatkan stabilitas interaksi, pengalaman visual, dan fleksibilitas kontrol keyboard.
+Dokumen ini mendokumentasikan serangkaian pembaruan, peningkatan, dan perbaikan bug terbaru yang diimplementasikan pada **Hopr**. Pembaruan ini meningkatkan stabilitas interaksi, pengalaman visual, dan fleksibilitas kontrol keyboard.
 
 ---
 
@@ -77,10 +77,10 @@ Berikut adalah lima pembaruan utama yang telah ditambahkan ke dalam codebase:
 
 | Jalur Berkas | Deskripsi Modifikasi |
 | :--- | :--- |
-| [`Sources/HoprClone/App/AppDelegate.swift`](file:///Users/macbook/Documents/Project/clone_hopr/Sources/HoprClone/App/AppDelegate.swift) | Menghubungkan callback pemantauan Shift dan visibility change dari `HintMode` untuk menampilkan/menyembunyikan HUD `ModeIndicator`. |
-| [`Sources/HoprClone/Core/AccessibilityService.swift`](file:///Users/macbook/Documents/Project/clone_hopr/Sources/HoprClone/Core/AccessibilityService.swift) | Menambahkan pengecualian jarak titik pusat (> 8px) pada fungsi `deduplicateOverlapping` untuk menjaga elemen tumpang tindih yang valid. |
-| [`Sources/HoprClone/Core/UIElement.swift`](file:///Users/macbook/Documents/Project/clone_hopr/Sources/HoprClone/Core/UIElement.swift) | Memperbaiki simulasi pemindahan kursor (`moveCursorTo`) menggunakan offset 1-piksel dan jeda 10ms untuk memicu hover state secara andal. |
-| [`Sources/HoprClone/Input/HotkeyManager.swift`](file:///Users/macbook/Documents/Project/clone_hopr/Sources/HoprClone/Input/HotkeyManager.swift) | Menambahkan penanganan event `.flagsChanged` untuk mendeteksi penekanan tombol Shift serta memperbarui pintasan global agar dapat di-toggle/di-switch secara langsung. |
-| [`Sources/HoprClone/Modes/HintMode.swift`](file:///Users/macbook/Documents/Project/clone_hopr/Sources/HoprClone/Modes/HintMode.swift) | Menerapkan logika *double-tap Shift* untuk menyembunyikan/menampilkan petunjuk sementara (`isTemporarilyDisabled`) dan menangguhkan pencegatan tombol. |
-| [`Sources/HoprClone/Modes/ModeController.swift`](file:///Users/macbook/Documents/Project/clone_hopr/Sources/HoprClone/Modes/ModeController.swift) | Menyediakan delegasi penanganan event penekanan Shift (`handleShiftKeyChanged`) ke mode aktif, serta mengaktifkan penonaktifan otomatis mode aktif sebelum memulai mode baru. |
-| [`Sources/HoprClone/Overlay/OverlayWindowController.swift`](file:///Users/macbook/Documents/Project/clone_hopr/Sources/HoprClone/Overlay/OverlayWindowController.swift) | Menambahkan fungsi `setOverlayVisible` dengan animasi perubahan alpha (fade-in 0.12s dan fade-out 0.10s) untuk jendela overlay utama. |
+| [`Sources/Hopr/App/AppDelegate.swift`](file:///Users/macbook/Documents/Project/clone_hopr/Sources/Hopr/App/AppDelegate.swift) | Menghubungkan callback pemantauan Shift dan visibility change dari `HintMode` untuk menampilkan/menyembunyikan HUD `ModeIndicator`. |
+| [`Sources/Hopr/Core/AccessibilityService.swift`](file:///Users/macbook/Documents/Project/clone_hopr/Sources/Hopr/Core/AccessibilityService.swift) | Menambahkan pengecualian jarak titik pusat (> 8px) pada fungsi `deduplicateOverlapping` untuk menjaga elemen tumpang tindih yang valid. |
+| [`Sources/Hopr/Core/UIElement.swift`](file:///Users/macbook/Documents/Project/clone_hopr/Sources/Hopr/Core/UIElement.swift) | Memperbaiki simulasi pemindahan kursor (`moveCursorTo`) menggunakan offset 1-piksel dan jeda 10ms untuk memicu hover state secara andal. |
+| [`Sources/Hopr/Input/HotkeyManager.swift`](file:///Users/macbook/Documents/Project/clone_hopr/Sources/Hopr/Input/HotkeyManager.swift) | Menambahkan penanganan event `.flagsChanged` untuk mendeteksi penekanan tombol Shift serta memperbarui pintasan global agar dapat di-toggle/di-switch secara langsung. |
+| [`Sources/Hopr/Modes/HintMode.swift`](file:///Users/macbook/Documents/Project/clone_hopr/Sources/Hopr/Modes/HintMode.swift) | Menerapkan logika *double-tap Shift* untuk menyembunyikan/menampilkan petunjuk sementara (`isTemporarilyDisabled`) dan menangguhkan pencegatan tombol. |
+| [`Sources/Hopr/Modes/ModeController.swift`](file:///Users/macbook/Documents/Project/clone_hopr/Sources/Hopr/Modes/ModeController.swift) | Menyediakan delegasi penanganan event penekanan Shift (`handleShiftKeyChanged`) ke mode aktif, serta mengaktifkan penonaktifan otomatis mode aktif sebelum memulai mode baru. |
+| [`Sources/Hopr/Overlay/OverlayWindowController.swift`](file:///Users/macbook/Documents/Project/clone_hopr/Sources/Hopr/Overlay/OverlayWindowController.swift) | Menambahkan fungsi `setOverlayVisible` dengan animasi perubahan alpha (fade-in 0.12s dan fade-out 0.10s) untuk jendela overlay utama. |

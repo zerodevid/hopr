@@ -1,0 +1,198 @@
+import SwiftUI
+import ServiceManagement
+
+final class AppSettings: ObservableObject {
+    static let shared = AppSettings()
+
+    // General — label color stored as hex string; replaces the old "theme" enum
+    @AppStorage("labelBgColorHex") var labelBgColorHex: String = "#FCDF22"  // classic yellow default
+    @AppStorage("labelSize") var labelSize: Double = 14
+    @AppStorage("showMenubarIcon") var showMenubarIcon: Bool = true
+    @AppStorage("modeIndicatorPosition") var modeIndicatorPosition: String = "top"
+    @AppStorage("hintPlacement") var hintPlacement: String = "auto" // options: "aboveBelow", "leftRight", "left", "right", "auto"
+    @AppStorage("showModeNotification") var showModeNotification: Bool = true
+
+    // Clicking
+    @AppStorage("autoClick") var autoClick: Bool = true
+    @AppStorage("chainClicks") var chainClicks: Bool = false
+    @AppStorage("labelCharacters") var labelCharacters: String = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    @AppStorage("hideLabelsBeforeSearch") var hideLabelsBeforeSearch: Bool = false
+
+    // Scrolling
+    @AppStorage("showScrollAreaNumbers") var showScrollAreaNumbers: Bool = true
+    @AppStorage("scrollSpeed") var scrollSpeed: Double = 8
+    @AppStorage("dashSpeed") var dashSpeed: Double = 60
+
+    // Mouse
+    @AppStorage("mouseSpeed") var mouseSpeed: Double = 12
+    @AppStorage("mouseFastSpeed") var mouseFastSpeed: Double = 40
+    @AppStorage("mouseDragDelay") var mouseDragDelay: Double = 0.20
+
+    // Ignored Apps
+    @AppStorage("ignoredApps") var ignoredAppsData: Data = Data()
+
+    // Global Shortcuts stored as JSON Data
+    @AppStorage("hintShortcutData") private var hintShortcutData: Data = Data()
+    @AppStorage("scrollShortcutData") private var scrollShortcutData: Data = Data()
+    @AppStorage("mouseShortcutData") private var mouseShortcutData: Data = Data()
+    @AppStorage("searchShortcutData") private var searchShortcutData: Data = Data()
+
+    // Launch at login setting synced with SMAppService
+    @AppStorage("launchAtLogin") var launchAtLogin: Bool = false {
+        didSet {
+            syncLaunchAtLogin()
+        }
+    }
+
+    var ignoredApps: [String] {
+        get { (try? JSONDecoder().decode([String].self, from: ignoredAppsData)) ?? [] }
+        set { ignoredAppsData = (try? JSONEncoder().encode(newValue)) ?? Data() }
+    }
+
+    var labelFont: NSFont {
+        NSFont.systemFont(ofSize: CGFloat(labelSize), weight: .semibold)
+    }
+
+    /// Derived label colors: background from stored hex, text auto-chosen for contrast.
+    var labelThemeColors: (background: NSColor, text: NSColor) {
+        let bg = NSColor(hex: labelBgColorHex) ?? .controlAccentColor
+        let text: NSColor = bg.isPerceptuallyLight ? .black : .white
+        return (background: bg, text: text)
+    }
+
+    init() {
+        // Synchronize initial state of launch at login from system SMAppService
+        let status = SMAppService.mainApp.status
+        self.launchAtLogin = (status == .enabled)
+    }
+
+    func isAppIgnored(_ bundleIdentifier: String?) -> Bool {
+        guard let id = bundleIdentifier else { return false }
+        return ignoredApps.contains(id)
+    }
+
+    // MARK: - Global Shortcuts Getters/Setters
+
+    var hintShortcut: KeyCombo {
+        get {
+            if let combo = try? JSONDecoder().decode(KeyCombo.self, from: hintShortcutData) {
+                return combo
+            }
+            // Default: Cmd + Shift + Space
+            let cmdAndShift = NSEvent.ModifierFlags([.command, .shift]).rawValue
+            return KeyCombo(keyCode: 49, modifiers: cmdAndShift) // 49 is Space
+        }
+        set {
+            hintShortcutData = (try? JSONEncoder().encode(newValue)) ?? Data()
+            objectWillChange.send()
+        }
+    }
+
+    var scrollShortcut: KeyCombo {
+        get {
+            if let combo = try? JSONDecoder().decode(KeyCombo.self, from: scrollShortcutData) {
+                return combo
+            }
+            // Default: Cmd + Shift + J
+            let cmdAndShift = NSEvent.ModifierFlags([.command, .shift]).rawValue
+            return KeyCombo(keyCode: 38, modifiers: cmdAndShift) // 38 is J
+        }
+        set {
+            scrollShortcutData = (try? JSONEncoder().encode(newValue)) ?? Data()
+            objectWillChange.send()
+        }
+    }
+
+    var mouseShortcut: KeyCombo {
+        get {
+            if let combo = try? JSONDecoder().decode(KeyCombo.self, from: mouseShortcutData) {
+                return combo
+            }
+            // Default: Cmd + Shift + M
+            let cmdAndShift = NSEvent.ModifierFlags([.command, .shift]).rawValue
+            return KeyCombo(keyCode: 46, modifiers: cmdAndShift) // 46 is M
+        }
+        set {
+            mouseShortcutData = (try? JSONEncoder().encode(newValue)) ?? Data()
+            objectWillChange.send()
+        }
+    }
+
+    var searchShortcut: KeyCombo {
+        get {
+            if let combo = try? JSONDecoder().decode(KeyCombo.self, from: searchShortcutData) {
+                return combo
+            }
+            // Default: Cmd + Shift + /
+            let cmdAndShift = NSEvent.ModifierFlags([.command, .shift]).rawValue
+            return KeyCombo(keyCode: 44, modifiers: cmdAndShift) // 44 is Slash
+        }
+        set {
+            searchShortcutData = (try? JSONEncoder().encode(newValue)) ?? Data()
+            objectWillChange.send()
+        }
+    }
+
+    // MARK: - Launch at Login Sync
+
+    func syncLaunchAtLogin() {
+        let status = SMAppService.mainApp.status
+        if launchAtLogin && status != .enabled {
+            do {
+                try SMAppService.mainApp.register()
+                Log.info("Registered launch at login successfully")
+            } catch {
+                Log.error("SMAppService registration failed: \(error)")
+            }
+        } else if !launchAtLogin && status == .enabled {
+            do {
+                try SMAppService.mainApp.unregister()
+                Log.info("Unregistered launch at login successfully")
+            } catch {
+                Log.error("SMAppService unregistration failed: \(error)")
+            }
+        }
+    }
+
+    // MARK: - Reset Settings Helpers
+
+    func resetGeneralSettings() {
+        labelBgColorHex = "#FCDF22"
+        labelSize = 14
+        showMenubarIcon = true
+        modeIndicatorPosition = "top"
+        hintPlacement = "auto"
+        
+        // Reset shortcuts
+        hintShortcutData = Data()
+        scrollShortcutData = Data()
+        mouseShortcutData = Data()
+        searchShortcutData = Data()
+        launchAtLogin = false
+        showModeNotification = true
+    }
+
+    func resetClickingSettings() {
+        autoClick = true
+        chainClicks = false
+        labelCharacters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        hideLabelsBeforeSearch = false
+    }
+
+    func resetScrollingSettings() {
+        showScrollAreaNumbers = true
+        scrollSpeed = 8
+        dashSpeed = 60
+    }
+
+    func resetMouseSettings() {
+        mouseSpeed = 12
+        mouseFastSpeed = 40
+        mouseDragDelay = 0.20
+    }
+
+    func resetIgnoredAppsSettings() {
+        ignoredApps = []
+    }
+}
+
