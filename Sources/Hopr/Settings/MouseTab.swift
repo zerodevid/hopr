@@ -24,6 +24,22 @@ struct MouseTab: View {
                                value: $settings.mouseFastSpeed, range: 20...100, step: 5)
             }
 
+            // MARK: - Directional Keys
+            SettingsCard(title: "Directional Keys") {
+                LabeledRow("Up Key", isLast: false) {
+                    SingleKeyRecorder(keyCode: $settings.mouseKeyUp)
+                }
+                LabeledRow("Down Key", isLast: false) {
+                    SingleKeyRecorder(keyCode: $settings.mouseKeyDown)
+                }
+                LabeledRow("Left Key", isLast: false) {
+                    SingleKeyRecorder(keyCode: $settings.mouseKeyLeft)
+                }
+                LabeledRow("Right Key", isLast: true) {
+                    SingleKeyRecorder(keyCode: $settings.mouseKeyRight)
+                }
+            }
+
             // MARK: - Drag & Drop
             SettingsCard(title: "Drag & Drop") {
                 LabeledRow("Drag Initiation Delay", isLast: true) {

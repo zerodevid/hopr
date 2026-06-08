@@ -25,9 +25,9 @@ class LabelView: NSView {
         layer?.backgroundColor = NSColor.clear.cgColor
         layer?.masksToBounds = false
         layer?.shadowColor = NSColor.black.cgColor
-        layer?.shadowOpacity = 0.38
-        layer?.shadowOffset = CGSize(width: 0, height: -2.0)
-        layer?.shadowRadius = 2.5
+        layer?.shadowOpacity = 0.45
+        layer?.shadowOffset = CGSize(width: 0, height: -2.5)
+        layer?.shadowRadius = 3.5
     }
 
     required init?(coder: NSCoder) {
@@ -42,9 +42,16 @@ class LabelView: NSView {
             textColor = AppSettings.shared.labelThemeColors.text
         }
 
+        let isLight = isHit ? false : AppSettings.shared.labelThemeColors.background.isPerceptuallyLight
+        let textShadow = NSShadow()
+        textShadow.shadowColor = isLight ? NSColor.white.withAlphaComponent(0.6) : NSColor.black.withAlphaComponent(0.5)
+        textShadow.shadowOffset = CGSize(width: 0, height: -0.75)
+        textShadow.shadowBlurRadius = 0.5
+
         let attrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: fontSize, weight: .bold),
             .foregroundColor: textColor,
+            .shadow: textShadow,
             .paragraphStyle: {
                 let ps = NSMutableParagraphStyle()
                 ps.alignment = .center
@@ -187,9 +194,10 @@ class LabelView: NSView {
 
         // 3D vertical gradient (lighter at top, darker at bottom)
         let isLight = bgColor.isPerceptuallyLight
-        let lightnessFactor: CGFloat = isLight ? 0.12 : 0.20
-        let topColor = bgColor.blended(withFraction: lightnessFactor, of: .white) ?? bgColor
-        let bottomColor = bgColor.blended(withFraction: lightnessFactor, of: .black) ?? bgColor
+        let topBlend: CGFloat = isLight ? 0.25 : 0.38
+        let bottomBlend: CGFloat = isLight ? 0.15 : 0.22
+        let topColor = bgColor.blended(withFraction: topBlend, of: .white) ?? bgColor
+        let bottomColor = bgColor.blended(withFraction: bottomBlend, of: .black) ?? bgColor
 
         if let gradient = NSGradient(starting: bottomColor, ending: topColor) {
             gradient.draw(in: fullPath, angle: 90)
@@ -198,17 +206,28 @@ class LabelView: NSView {
             fullPath.fill()
         }
 
-        // Outer border
+        // Inner 3D Bevel/Highlight inside the bubble body
+        let innerHighlightColor = NSColor.white.withAlphaComponent(isLight ? 0.50 : 0.25)
+        let innerShadowColor = NSColor.black.withAlphaComponent(isLight ? 0.14 : 0.30)
+        let bevelRect = bubbleRect.insetBy(dx: 0.75, dy: 0.75)
+        let bevelRadius = max(0.5, radius - 0.5)
+
+        // 1. Draw bottom shadow offset slightly down
+        let shadowPath = NSBezierPath(roundedRect: bevelRect.offsetBy(dx: 0, dy: -0.5), xRadius: bevelRadius, yRadius: bevelRadius)
+        innerShadowColor.setStroke()
+        shadowPath.lineWidth = 0.5
+        shadowPath.stroke()
+
+        // 2. Draw top highlight offset slightly up
+        let highlightPath = NSBezierPath(roundedRect: bevelRect.offsetBy(dx: 0, dy: 0.5), xRadius: bevelRadius, yRadius: bevelRadius)
+        innerHighlightColor.setStroke()
+        highlightPath.lineWidth = 0.5
+        highlightPath.stroke()
+
+        // 3. Draw outer border on top to clean up edges
         borderColor.setStroke()
         fullPath.lineWidth = 0.75
         fullPath.stroke()
-
-        // Inner bevel/highlight inside the bubble body to create 3D depth
-        let innerHighlightColor = NSColor.white.withAlphaComponent(isLight ? 0.35 : 0.16)
-        let innerPath = NSBezierPath(roundedRect: bubbleRect.insetBy(dx: 0.75, dy: 0.75), xRadius: max(0.5, radius - 0.5), yRadius: max(0.5, radius - 0.5))
-        innerHighlightColor.setStroke()
-        innerPath.lineWidth = 0.5
-        innerPath.stroke()
 
         // Text
         drawText(in: bubbleRect, fontSize: fontSize)

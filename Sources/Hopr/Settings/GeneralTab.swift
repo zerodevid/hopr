@@ -310,22 +310,18 @@ struct LabelBubble: View {
     }
 
     private var topColor: Color {
-        let lightnessFactor: CGFloat = isLight ? 0.12 : 0.20
-        return Color(nsColor: nsBgColor.blended(withFraction: lightnessFactor, of: .white) ?? nsBgColor)
+        let topBlend: CGFloat = isLight ? 0.25 : 0.38
+        return Color(nsColor: nsBgColor.blended(withFraction: topBlend, of: .white) ?? nsBgColor)
     }
 
     private var bottomColor: Color {
-        let lightnessFactor: CGFloat = isLight ? 0.12 : 0.20
-        return Color(nsColor: nsBgColor.blended(withFraction: lightnessFactor, of: .black) ?? nsBgColor)
+        let bottomBlend: CGFloat = isLight ? 0.15 : 0.22
+        return Color(nsColor: nsBgColor.blended(withFraction: bottomBlend, of: .black) ?? nsBgColor)
     }
 
     private var borderColor: Color {
         Color(nsColor: nsBgColor.blended(withFraction: 0.35, of: .black)?.withAlphaComponent(0.45)
             ?? NSColor.black.withAlphaComponent(0.2))
-    }
-
-    private var innerHighlightColor: Color {
-        Color.white.opacity(isLight ? 0.35 : 0.16)
     }
 
     private var computedFontSize: CGFloat {
@@ -339,6 +335,7 @@ struct LabelBubble: View {
             Text(text)
                 .font(.system(size: computedFontSize, weight: .bold))
                 .foregroundColor(textColor)
+                .shadow(color: isLight ? .white.opacity(0.6) : .black.opacity(0.5), radius: 0.5, x: 0, y: 0.75)
                 .padding(.horizontal, 5)
                 .padding(.vertical, 2.5)
                 .background(
@@ -355,7 +352,18 @@ struct LabelBubble: View {
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 2.2, style: .continuous)
-                        .strokeBorder(innerHighlightColor, lineWidth: 0.5)
+                        .strokeBorder(
+                            LinearGradient(
+                                colors: [
+                                    .white.opacity(isLight ? 0.50 : 0.25),
+                                    .white.opacity(0.0),
+                                    .black.opacity(isLight ? 0.14 : 0.30)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            ),
+                            lineWidth: 0.5
+                        )
                         .padding(0.75)
                 )
 
@@ -368,7 +376,7 @@ struct LabelBubble: View {
                         .stroke(borderColor, lineWidth: 0.75)
                 )
         }
-        .shadow(color: Color.black.opacity(0.38), radius: 2.5, x: 0, y: 1.5)
+        .shadow(color: Color.black.opacity(0.45), radius: 3.5, x: 0, y: 2.5)
         .animation(.easeInOut(duration: 0.1), value: computedFontSize)
     }
 }

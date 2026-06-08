@@ -1043,6 +1043,29 @@ final class AccessibilityService {
     /// Find distinct scrollable sub-panels in Electron apps (VSCode, etc.)
     /// Electron doesn't expose AXScrollArea — instead, panels are AXGroup elements
     /// with distinct non-overlapping frames (sidebar, editor, terminal, panel).
+    private func isPanelElement(_ element: AXUIElement, windowFrame: CGRect) -> Bool {
+        var roleRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRef) == .success,
+              let role = roleRef as? String else { return false }
+              
+        var posRef: CFTypeRef?
+        var sizeRef: CFTypeRef?
+        AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &posRef)
+        AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &sizeRef)
+        var point = CGPoint.zero
+        var size = CGSize.zero
+        if let p = posRef { AXValueGetValue(p as! AXValue, .cgPoint, &point) }
+        if let s = sizeRef { AXValueGetValue(s as! AXValue, .cgSize, &size) }
+        
+        let panelRoles: Set<String> = ["AXGroup", "AXScrollArea", "AXTextArea", "AXWebArea", "AXList", "AXTable", "AXOutline"]
+        return panelRoles.contains(role)
+            && size.width > 80 && size.height > 80
+            && (size.width < windowFrame.width * 0.95 || size.height < windowFrame.height * 0.85)
+    }
+
+    /// Find distinct scrollable sub-panels in Electron apps (VSCode, etc.)
+    /// Electron doesn't expose AXScrollArea — instead, panels are AXGroup elements
+    /// with distinct non-overlapping frames (sidebar, editor, terminal, panel).
     private func findElectronScrollPanels(
         in element: AXUIElement,
         windowFrame: CGRect,
@@ -1052,11 +1075,6 @@ final class AccessibilityService {
         // Electron trees are deep; we need enough depth to reach the panel level
         guard depth < 30 else { return }
 
-        var roleRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRef) == .success,
-              let role = roleRef as? String else { return }
-
-        // Get this element's frame
         var posRef: CFTypeRef?
         var sizeRef: CFTypeRef?
         AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &posRef)
@@ -1067,25 +1085,46 @@ final class AccessibilityService {
         if let s = sizeRef { AXValueGetValue(s as! AXValue, .cgSize, &size) }
         let frame = CGRect(origin: point, size: size)
 
-        // A panel candidate: AXGroup that is significantly smaller than the window
-        // and has a reasonable size (not tiny scrollbar, not full-window wrapper)
-        let isPanel = (role == "AXGroup" || role == "AXScrollArea" || role == "AXTextArea" || role == "AXWebArea" || role == "AXList" || role == "AXTable" || role == "AXOutline")
-            && size.width > 80 && size.height > 80
-            && (size.width < windowFrame.width * 0.95 && size.height < windowFrame.height * 0.85)
+        let isPanel = isPanelElement(element, windowFrame: windowFrame)
 
-        if isPanel {
-            let area = ScrollableArea(element: element, frame: frame)
-            results.append(area)
-            // Don't recurse further into this panel — we want top-level panels, not nested sub-views
-            return
-        }
-
-        // Recurse into children
         var childrenRef: CFTypeRef?
         if AXUIElementCopyAttributeValue(element, "AXChildrenInNavigationOrder" as CFString, &childrenRef) != .success {
             AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenRef)
         }
-        guard let children = childrenRef as? [AXUIElement] else { return }
+        let children = childrenRef as? [AXUIElement] ?? []
+
+        if isPanel {
+            // Filter immediate children that are panel candidates
+            var childPanels: [(AXUIElement, CGSize)] = []
+            for child in children {
+                if isPanelElement(child, windowFrame: windowFrame) {
+                    var childSizeRef: CFTypeRef?
+                    AXUIElementCopyAttributeValue(child, kAXSizeAttribute as CFString, &childSizeRef)
+                    var childSize = CGSize.zero
+                    if let s = childSizeRef { AXValueGetValue(s as! AXValue, .cgSize, &childSize) }
+                    childPanels.append((child, childSize))
+                }
+            }
+            
+            if childPanels.count >= 2 {
+                // Layout container: recurse into children
+            } else if childPanels.count == 1 {
+                let childSize = childPanels[0].1
+                if childSize.width >= size.width * 0.95 && childSize.height >= size.height * 0.95 {
+                    // Wrapper panel: recurse into children
+                } else {
+                    // Leaf panel: add and return early
+                    let area = ScrollableArea(element: element, frame: frame)
+                    results.append(area)
+                    return
+                }
+            } else {
+                // Leaf panel: add and return early
+                let area = ScrollableArea(element: element, frame: frame)
+                results.append(area)
+                return
+            }
+        }
 
         for child in children {
             findElectronScrollPanels(in: child, windowFrame: windowFrame, depth: depth + 1, results: &results)
@@ -1132,10 +1171,8 @@ final class AccessibilityService {
         if let role, (role == "AXWebArea" || role == "AXWebDocument") {
             if let area = ScrollableArea.from(element) {
                 results.append(area)
-                // Search recursively for scrollable divs inside the web view
-                var webResults: [ScrollableArea] = []
-                findWebScrollAreas(in: element, webAreaFrame: area.frame, depth: 0, results: &webResults)
-                results.append(contentsOf: webResults)
+                // Find sub-scrollable panels inside the web area
+                findWebScrollAreas(in: element, webAreaFrame: area.frame, depth: 0, results: &results)
                 return // Avoid standard recursion inside webview DOM
             }
         }
@@ -1237,7 +1274,8 @@ final class AccessibilityService {
 
         let isWebScrollCandidate = (role == "AXGroup" || role == "AXScrollArea" || role == "AXList" || role == "AXTable" || role == "AXOutline" || role == "AXTextArea")
             && size.width > 80 && size.height > 80
-            && (size.width < webAreaFrame.width * 0.98 && size.height < webAreaFrame.height * 0.98)
+            && (size.width < webAreaFrame.width * 0.98 || size.height < webAreaFrame.height * 0.98)
+            && size.height >= webAreaFrame.height * 0.40
 
         if isWebScrollCandidate {
             var isScrollable = false
@@ -1282,35 +1320,41 @@ final class AccessibilityService {
     private func deduplicateScrollAreas(_ areas: [ScrollableArea]) -> [ScrollableArea] {
         guard areas.count > 1 else { return areas }
 
-        // Remove near-duplicate areas (Electron has nested AXGroups with frames
-        // differing by 1-2px, e.g. [1262,74 538x1015] vs [1263,74 537x1015])
-        var kept: [ScrollableArea] = []
+        // First, remove near-duplicate areas (Electron has nested AXGroups with frames
+        // differing by 1-2px)
+        var uniqueAreas: [ScrollableArea] = []
         let tolerance: CGFloat = 10
 
         for area in areas {
-            let isDuplicate = kept.contains { existing in
-                // Near-duplicate: frames are almost identical (within tolerance)
+            let isDuplicate = uniqueAreas.contains { existing in
                 abs(existing.frame.origin.x - area.frame.origin.x) < tolerance
                 && abs(existing.frame.origin.y - area.frame.origin.y) < tolerance
                 && abs(existing.frame.width - area.frame.width) < tolerance
                 && abs(existing.frame.height - area.frame.height) < tolerance
             }
-            let isContained = kept.contains { existing in
-                if existing.frame.contains(area.frame) && existing.frame != area.frame {
-                    // Get containing element role
-                    var existingRoleRef: CFTypeRef?
-                    AXUIElementCopyAttributeValue(existing.element, kAXRoleAttribute as CFString, &existingRoleRef)
-                    let existingRole = existingRoleRef as? String ?? ""
-                    
-                    // Allow nested scrollareas inside AXWebArea, AXWebDocument, AXWindow, and AXScrollArea
-                    if existingRole == "AXWebArea" || existingRole == "AXWebDocument" || existingRole == "AXWindow" || existingRole == "AXScrollArea" {
-                        return false
-                    }
-                    return true
-                }
-                return false
+            if !isDuplicate {
+                uniqueAreas.append(area)
             }
-            if !isDuplicate && !isContained {
+        }
+
+        // Now, if one area contains another area, keep the smaller (contained) one and discard the larger (containing) one.
+        var kept: [ScrollableArea] = []
+        for area in uniqueAreas {
+            let containsOther = uniqueAreas.contains { other in
+                if other.frame == area.frame { return false }
+                
+                // Get containing element role
+                var existingRoleRef: CFTypeRef?
+                AXUIElementCopyAttributeValue(area.element, kAXRoleAttribute as CFString, &existingRoleRef)
+                let existingRole = existingRoleRef as? String ?? ""
+                
+                // Allow nested scrollareas inside AXWebArea, AXWebDocument, AXWindow, and AXScrollArea
+                if existingRole == "AXWebArea" || existingRole == "AXWebDocument" || existingRole == "AXWindow" || existingRole == "AXScrollArea" {
+                    return false
+                }
+                return area.frame.contains(other.frame)
+            }
+            if !containsOther {
                 kept.append(area)
             }
         }

@@ -22,11 +22,19 @@ final class AppSettings: ObservableObject {
     @AppStorage("showScrollAreaNumbers") var showScrollAreaNumbers: Bool = true
     @AppStorage("scrollSpeed") var scrollSpeed: Double = 8
     @AppStorage("dashSpeed") var dashSpeed: Double = 60
+    @AppStorage("scrollKeyUp") var scrollKeyUp: Int = 38         // J (kVK_ANSI_J)
+    @AppStorage("scrollKeyDown") var scrollKeyDown: Int = 40     // K (kVK_ANSI_K)
+    @AppStorage("scrollKeyLeft") var scrollKeyLeft: Int = 4       // H (kVK_ANSI_H)
+    @AppStorage("scrollKeyRight") var scrollKeyRight: Int = 37     // L (kVK_ANSI_L)
 
     // Mouse
     @AppStorage("mouseSpeed") var mouseSpeed: Double = 12
     @AppStorage("mouseFastSpeed") var mouseFastSpeed: Double = 40
     @AppStorage("mouseDragDelay") var mouseDragDelay: Double = 0.20
+    @AppStorage("mouseKeyUp") var mouseKeyUp: Int = 38           // J (kVK_ANSI_J)
+    @AppStorage("mouseKeyDown") var mouseKeyDown: Int = 40       // K (kVK_ANSI_K)
+    @AppStorage("mouseKeyLeft") var mouseKeyLeft: Int = 4         // H (kVK_ANSI_H)
+    @AppStorage("mouseKeyRight") var mouseKeyRight: Int = 37       // L (kVK_ANSI_L)
 
     // Ignored Apps
     @AppStorage("ignoredApps") var ignoredAppsData: Data = Data()
@@ -183,12 +191,20 @@ final class AppSettings: ObservableObject {
         showScrollAreaNumbers = true
         scrollSpeed = 8
         dashSpeed = 60
+        scrollKeyUp = 38
+        scrollKeyDown = 40
+        scrollKeyLeft = 4
+        scrollKeyRight = 37
     }
 
     func resetMouseSettings() {
         mouseSpeed = 12
         mouseFastSpeed = 40
         mouseDragDelay = 0.20
+        mouseKeyUp = 38
+        mouseKeyDown = 40
+        mouseKeyLeft = 4
+        mouseKeyRight = 37
     }
 
     func resetIgnoredAppsSettings() {

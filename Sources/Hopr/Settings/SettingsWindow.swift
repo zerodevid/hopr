@@ -149,12 +149,12 @@ final class SettingsWindow: NSObject {
 
     private func contentSize(for tab: SettingsTab) -> NSSize {
         switch tab {
-        case .general:   return NSSize(width: 580, height: 630)
+        case .general:   return NSSize(width: 580, height: 670)
         case .clicking:  return NSSize(width: 580, height: 470)
-        case .scrolling: return NSSize(width: 580, height: 350)
-        case .mouse:     return NSSize(width: 580, height: 380)
+        case .scrolling: return NSSize(width: 580, height: 550)
+        case .mouse:     return NSSize(width: 580, height: 580)
         case .ignored:   return NSSize(width: 580, height: 400)
-        case .about:     return NSSize(width: 580, height: 400)
+        case .about:     return NSSize(width: 580, height: 600)
         }
     }
 }

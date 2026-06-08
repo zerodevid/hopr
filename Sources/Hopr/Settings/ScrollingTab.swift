@@ -29,6 +29,22 @@ struct ScrollingTab: View {
                                value: $settings.dashSpeed, range: 20...120, step: 5)
             }
 
+            // MARK: - Directional Keys
+            SettingsCard(title: "Directional Keys") {
+                LabeledRow("Up Key", isLast: false) {
+                    SingleKeyRecorder(keyCode: $settings.scrollKeyUp)
+                }
+                LabeledRow("Down Key", isLast: false) {
+                    SingleKeyRecorder(keyCode: $settings.scrollKeyDown)
+                }
+                LabeledRow("Left Key", isLast: false) {
+                    SingleKeyRecorder(keyCode: $settings.scrollKeyLeft)
+                }
+                LabeledRow("Right Key", isLast: true) {
+                    SingleKeyRecorder(keyCode: $settings.scrollKeyRight)
+                }
+            }
+
             // Restore Defaults
             HStack {
                 Spacer()

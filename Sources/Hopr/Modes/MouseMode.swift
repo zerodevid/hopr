@@ -7,10 +7,11 @@ final class MouseMode {
     private var velocity = CGPoint.zero
     private var isActive = false
 
-    private let keyW = UInt16(kVK_ANSI_W)
-    private let keyA = UInt16(kVK_ANSI_A)
-    private let keyS = UInt16(kVK_ANSI_S)
-    private let keyD = UInt16(kVK_ANSI_D)
+    private var settings: AppSettings { AppSettings.shared }
+    private var keyW: UInt16 { UInt16(settings.mouseKeyUp) }
+    private var keyA: UInt16 { UInt16(settings.mouseKeyLeft) }
+    private var keyS: UInt16 { UInt16(settings.mouseKeyDown) }
+    private var keyD: UInt16 { UInt16(settings.mouseKeyRight) }
 
     // Key mappings
     private let keyLeft = UInt16(kVK_ANSI_Q)

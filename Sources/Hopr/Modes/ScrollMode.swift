@@ -76,10 +76,10 @@ final class ScrollMode {
             return true
         case .scrolling:
             let scrollKeys: Set<UInt16> = [
-                UInt16(kVK_ANSI_J),
-                UInt16(kVK_ANSI_K),
-                UInt16(kVK_ANSI_H),
-                UInt16(kVK_ANSI_L)
+                UInt16(settings.scrollKeyUp),
+                UInt16(settings.scrollKeyDown),
+                UInt16(settings.scrollKeyLeft),
+                UInt16(settings.scrollKeyRight)
             ]
             if scrollKeys.contains(keyCode) {
                 let isNew = !pressedKeys.contains(keyCode)
@@ -175,18 +175,18 @@ final class ScrollMode {
         
         // Calculate force direction from currently pressed keys
         var forceY: CGFloat = 0
-        if pressedKeys.contains(UInt16(kVK_ANSI_J)) {
+        if pressedKeys.contains(UInt16(settings.scrollKeyUp)) {
             forceY += 1.0  // scroll up (naik)
         }
-        if pressedKeys.contains(UInt16(kVK_ANSI_K)) {
+        if pressedKeys.contains(UInt16(settings.scrollKeyDown)) {
             forceY -= 1.0  // scroll down (turun)
         }
 
         var forceX: CGFloat = 0
-        if pressedKeys.contains(UInt16(kVK_ANSI_H)) {
+        if pressedKeys.contains(UInt16(settings.scrollKeyLeft)) {
             forceX += 1.0  // scroll left (content right)
         }
-        if pressedKeys.contains(UInt16(kVK_ANSI_L)) {
+        if pressedKeys.contains(UInt16(settings.scrollKeyRight)) {
             forceX -= 1.0  // scroll right (content left)
         }
 
@@ -226,6 +226,8 @@ final class ScrollMode {
     }
 
     private func scroll(vertical: CGFloat, horizontal: CGFloat) {
+        let center = selectedArea.map { CGPoint(x: $0.frame.midX, y: $0.frame.midY) }
+        
         if let event = CGEvent(
             scrollWheelEvent2Source: nil,
             units: .pixel,
@@ -234,6 +236,9 @@ final class ScrollMode {
             wheel2: Int32(horizontal),
             wheel3: 0
         ) {
+            if let center = center {
+                event.location = center
+            }
             event.setDoubleValueField(.scrollWheelEventPointDeltaAxis1, value: Double(vertical))
             event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1, value: Double(vertical))
             event.setDoubleValueField(.scrollWheelEventPointDeltaAxis2, value: Double(horizontal))
