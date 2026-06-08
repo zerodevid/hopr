@@ -125,8 +125,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func loadMenubarImage() -> NSImage? {
         let fm = FileManager.default
-        let localPath = fm.currentDirectoryPath + "/icon.svg"
-        let absolutePath = "/Users/macbook/Documents/Project/clone_hopr/icon.svg"
+        let localPath = fm.currentDirectoryPath + "/Resources/icon.svg"
+        let absolutePath = "/Users/macbook/Documents/Project/clone_hopr/Resources/icon.svg"
         
         var path: String? = nil
         if fm.fileExists(atPath: localPath) {
