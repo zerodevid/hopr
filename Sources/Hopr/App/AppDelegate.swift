@@ -123,11 +123,34 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    private func loadMenubarImage() -> NSImage? {
+        let fm = FileManager.default
+        let localPath = fm.currentDirectoryPath + "/icon.png"
+        let absolutePath = "/Users/macbook/Documents/Project/clone_hopr/icon.png"
+        
+        var path: String? = nil
+        if fm.fileExists(atPath: localPath) {
+            path = localPath
+        } else if fm.fileExists(atPath: absolutePath) {
+            path = absolutePath
+        }
+        
+        guard let imagePath = path, let img = NSImage(contentsOfFile: imagePath) else {
+            return nil
+        }
+        
+        img.size = NSSize(width: 18, height: 18)
+        img.isTemplate = true
+        return img
+    }
+
     private func setupStatusBar() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
 
         if let button = statusItem.button {
-            if let img = NSImage(systemSymbolName: "keyboard.fill", accessibilityDescription: "Hopr") {
+            if let customImg = loadMenubarImage() {
+                button.image = customImg
+            } else if let img = NSImage(systemSymbolName: "keyboard.fill", accessibilityDescription: "Hopr") {
                 img.isTemplate = true
                 button.image = img
             } else {
