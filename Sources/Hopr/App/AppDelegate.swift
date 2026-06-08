@@ -13,6 +13,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let modeIndicator = ModeIndicator()
     private var prefetchTimer: Timer?
     private var menubarObserver: NSObjectProtocol?
+    private var menubarAnimator: MenubarAnimator?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if !Permissions.ensureAccessibility() {
@@ -123,39 +124,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    private func loadMenubarImage() -> NSImage? {
-        let fm = FileManager.default
-        let localPath = fm.currentDirectoryPath + "/Resources/icon.svg"
-        let absolutePath = "/Users/macbook/Documents/Project/clone_hopr/Resources/icon.svg"
-        
-        var path: String? = nil
-        if fm.fileExists(atPath: localPath) {
-            path = localPath
-        } else if fm.fileExists(atPath: absolutePath) {
-            path = absolutePath
-        }
-        
-        guard let imagePath = path, let img = NSImage(contentsOfFile: imagePath) else {
-            return nil
-        }
-        
-        img.size = NSSize(width: 18, height: 18)
-        img.isTemplate = true
-        return img
-    }
-
     private func setupStatusBar() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
 
         if let button = statusItem.button {
-            if let customImg = loadMenubarImage() {
-                button.image = customImg
-            } else if let img = NSImage(systemSymbolName: "keyboard.fill", accessibilityDescription: "Hopr") {
-                img.isTemplate = true
-                button.image = img
-            } else {
-                button.title = "Hopr"
-            }
+            // Use the animated Hollow Knight icon
+            menubarAnimator = MenubarAnimator(button: button)
         }
 
         let menu = NSMenu()
@@ -335,14 +309,19 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             searchMode.deactivate()
             mouseMode.deactivate()
             SoundManager.shared.playExitMode()
+            menubarAnimator?.setExpression(.normal)
         case .hint:
             hintMode.activate()
+            menubarAnimator?.playSurprised()
         case .scroll:
             scrollMode.activate()
+            menubarAnimator?.playHappy()
         case .search:
             searchMode.activate()
+            menubarAnimator?.setExpression(.surprised, revertAfter: 1.0)
         case .mouse:
             mouseMode.activate()
+            menubarAnimator?.playAngry()
         }
     }
 }
