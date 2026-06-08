@@ -1,8 +1,8 @@
 import Cocoa
 
 /// Draws the Hollow Knight menu-bar icon with animated expressions.
-/// All drawing is done programmatically so no external assets are needed
-/// beyond the base SVG (which is only used as a fallback).
+/// Uses CGContext with .clear compositing to punch transparent eye holes
+/// in the template image (since isTemplate=true uses alpha only).
 final class MenubarAnimator {
 
     // MARK: - Expression types
@@ -24,7 +24,8 @@ final class MenubarAnimator {
     private weak var button: NSStatusBarButton?
     private var idleTimer: Timer?
     private var animationTimer: Timer?
-    private var blinkSequenceIndex = 0
+    private var mouseTrackingTimer: Timer?
+    private var lastMouseLocation: NSPoint = .zero
 
     // Icon dimensions (menu-bar native)
     private let iconSize = NSSize(width: 18, height: 18)
@@ -35,11 +36,13 @@ final class MenubarAnimator {
         self.button = button
         setExpression(.normal)
         startIdleLoop()
+        startMouseTracking()
     }
 
     deinit {
         idleTimer?.invalidate()
         animationTimer?.invalidate()
+        mouseTrackingTimer?.invalidate()
     }
 
     // MARK: - Public API
@@ -129,6 +132,17 @@ final class MenubarAnimator {
         }
     }
 
+    private func startMouseTracking() {
+        mouseTrackingTimer = Timer.scheduledTimer(withTimeInterval: 0.08, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            let currentLoc = NSEvent.mouseLocation
+            if currentLoc != self.lastMouseLocation {
+                self.lastMouseLocation = currentLoc
+                self.button?.image = self.renderIcon(expression: self.currentExpression)
+            }
+        }
+    }
+
     // MARK: - Sequence player
 
     private func playSequence(_ sequence: [(Expression, TimeInterval)]) {
@@ -139,20 +153,6 @@ final class MenubarAnimator {
         let first = remaining.removeFirst()
         setExpression(first.0)
 
-        func playNext() {
-            guard !remaining.isEmpty else { return }
-            let next = remaining.removeFirst()
-            animationTimer = Timer.scheduledTimer(withTimeInterval: first.1, repeats: false) { [weak self] _ in
-                self?.setExpression(next.0)
-                if !remaining.isEmpty {
-                    let afterThis = next.1
-                    self?.animationTimer = Timer.scheduledTimer(withTimeInterval: afterThis, repeats: false) { _ in
-                        playNext()
-                    }
-                }
-            }
-        }
-        // Kick off recursive playback
         if remaining.isEmpty { return }
         let second = remaining.removeFirst()
         animationTimer = Timer.scheduledTimer(withTimeInterval: first.1, repeats: false) { [weak self] _ in
@@ -169,207 +169,273 @@ final class MenubarAnimator {
             setExpression(next.0)
             return
         }
+        setExpression(next.0)
         animationTimer = Timer.scheduledTimer(withTimeInterval: max(next.1, 0.01), repeats: false) { [weak self] _ in
-            if remaining.isEmpty {
-                // This was the last with a delay, expression already set
-                return
-            }
+            if remaining.isEmpty { return }
             let after = remaining.removeFirst()
             self?.setExpression(after.0)
             self?.playRemainingSequence(remaining)
         }
-        setExpression(next.0)
     }
 
-    // MARK: - Drawing
+    // MARK: - Drawing (SVG base + animated eyes)
 
-    private func renderIcon(expression: Expression) -> NSImage {
-        let img = NSImage(size: iconSize, flipped: false) { rect in
-            // All drawing in a normalized 0…1 coordinate space
-            let s = rect.size
+    /// Cached base SVG image (head + horns, no eyes)
+    private var cachedBaseCGImage: CGImage?
 
-            // --- Head (rounded rect) ---
-            let headRect = NSRect(x: s.width * 0.12, y: s.height * 0.02,
-                                  width: s.width * 0.76, height: s.height * 0.72)
-            let headPath = NSBezierPath(roundedRect: headRect, xRadius: s.width * 0.15, yRadius: s.height * 0.15)
+    /// Load and cache the SVG without eyes as a CGImage for compositing
+    private func loadBaseSVG() -> CGImage? {
+        if let cached = cachedBaseCGImage { return cached }
 
-            NSColor.black.setFill()
-            headPath.fill()
+        // Try to load the SVG file
+        let fm = FileManager.default
+        let localPath = fm.currentDirectoryPath + "/Resources/icon.svg"
+        let absolutePath = "/Users/macbook/Documents/Project/clone_hopr/Resources/icon.svg"
 
-            // --- Horns ---
-            self.drawHorn(left: true, in: rect)
-            self.drawHorn(left: false, in: rect)
-
-            // --- Eyes (expression-dependent) ---
-            self.drawEyes(expression: expression, in: rect)
-
-            return true
+        var path: String? = nil
+        if fm.fileExists(atPath: localPath) {
+            path = localPath
+        } else if fm.fileExists(atPath: absolutePath) {
+            path = absolutePath
         }
 
+        guard let imagePath = path, let svgImage = NSImage(contentsOfFile: imagePath) else {
+            return nil
+        }
+
+        // Render the SVG into a bitmap at 2x scale
+        let scale: CGFloat = 2.0
+        let w = Int(iconSize.width * scale)
+        let h = Int(iconSize.height * scale)
+
+        guard let bitmapRep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: w, pixelsHigh: h,
+            bitsPerSample: 8, samplesPerPixel: 4,
+            hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: w * 4,
+            bitsPerPixel: 32
+        ) else { return nil }
+
+        let gfxCtx = NSGraphicsContext(bitmapImageRep: bitmapRep)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = gfxCtx
+
+        let drawRect = NSRect(origin: .zero, size: NSSize(width: w, height: h))
+        svgImage.draw(in: drawRect)
+
+        NSGraphicsContext.restoreGraphicsState()
+
+        cachedBaseCGImage = bitmapRep.cgImage
+        return cachedBaseCGImage
+    }
+
+    private func renderIcon(expression: Expression) -> NSImage {
+        let scale: CGFloat = 2.0
+        let w = Int(iconSize.width * scale)
+        let h = Int(iconSize.height * scale)
+        let s = CGSize(width: CGFloat(w), height: CGFloat(h))
+
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let ctx = CGContext(
+            data: nil,
+            width: w, height: h,
+            bitsPerComponent: 8,
+            bytesPerRow: w * 4,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            return NSImage(size: iconSize)
+        }
+
+        // Start fully transparent
+        ctx.clear(CGRect(origin: .zero, size: s))
+
+        // Draw the base SVG (head + horns + original eyes) WITHOUT vertical flip in CGContext.
+        // This makes it upside down in CGContext, which renders right-side up in the flipped menu bar.
+        if let baseCG = loadBaseSVG() {
+            ctx.draw(baseCG, in: CGRect(origin: .zero, size: s))
+        }
+
+        // Calculate eye offset based on mouse position
+        let screenFrame = NSScreen.main?.frame ?? NSRect(x: 0, y: 0, width: 1920, height: 1080)
+        let mouseLocation = NSEvent.mouseLocation
+        
+        let centerX = screenFrame.midX
+        let centerY = screenFrame.midY
+        
+        // Normalize coordinates to [-1, 1] relative to screen center
+        let dx = max(-1.0, min(1.0, (mouseLocation.x - centerX) / max(100.0, screenFrame.width / 2)))
+        let dy = max(-1.0, min(1.0, (mouseLocation.y - centerY) / max(100.0, screenFrame.height / 2)))
+        
+        // maximum displacement in CGContext pixels (at 2x scale, head width is 36px)
+        let maxOffsetX: CGFloat = 1.4
+        let maxOffsetY: CGFloat = 1.8
+        
+        // Since only the vertical coordinate space is flipped in CGContext rendering relative to screen coordinates, keep dx positive and dy positive
+        let offset = CGPoint(x: dx * maxOffsetX, y: dy * maxOffsetY)
+
+        // Always fill and redraw eyes to apply the offset dynamically
+        fillOriginalEyes(ctx: ctx, size: s)
+        drawEyes(ctx: ctx, expression: expression, size: s, offset: offset)
+
+        // Create NSImage from context
+        guard let cgImage = ctx.makeImage() else {
+            return NSImage(size: iconSize)
+        }
+
+        let img = NSImage(cgImage: cgImage, size: iconSize)
         img.isTemplate = true
         return img
     }
 
-    // MARK: - Horn drawing
+    /// Fill the original eye areas with solid white (body color) to hide them.
+    private func fillOriginalEyes(ctx: CGContext, size s: CGSize) {
+        ctx.saveGState()
+        ctx.setBlendMode(.normal)
+        ctx.setFillColor(red: 1, green: 1, blue: 1, alpha: 1) // Solid white
 
-    private func drawHorn(left: Bool, in rect: NSRect) {
-        let s = rect.size
-        let path = NSBezierPath()
+        // Exact ratios from SVG viewBox (614x726)
+        // Since Y is flipped on screen, the eyes center Y in CGContext is 0.5048 * s.height.
+        let leftRect = CGRect(
+            x: s.width * 0.3575 - (s.width * 0.2362) / 2,
+            y: s.height * 0.5048 - (s.height * 0.3127) / 2,
+            width: s.width * 0.2362,
+            height: s.height * 0.3127
+        )
+        ctx.fillEllipse(in: leftRect)
 
-        if left {
-            // Left horn
-            path.move(to: NSPoint(x: s.width * 0.20, y: s.height * 0.60))
-            path.curve(to: NSPoint(x: s.width * 0.12, y: s.height * 0.95),
-                       controlPoint1: NSPoint(x: s.width * 0.10, y: s.height * 0.70),
-                       controlPoint2: NSPoint(x: s.width * 0.05, y: s.height * 0.88))
-            path.curve(to: NSPoint(x: s.width * 0.35, y: s.height * 0.72),
-                       controlPoint1: NSPoint(x: s.width * 0.20, y: s.height * 0.90),
-                       controlPoint2: NSPoint(x: s.width * 0.30, y: s.height * 0.80))
-        } else {
-            // Right horn (mirrored)
-            path.move(to: NSPoint(x: s.width * 0.80, y: s.height * 0.60))
-            path.curve(to: NSPoint(x: s.width * 0.88, y: s.height * 0.95),
-                       controlPoint1: NSPoint(x: s.width * 0.90, y: s.height * 0.70),
-                       controlPoint2: NSPoint(x: s.width * 0.95, y: s.height * 0.88))
-            path.curve(to: NSPoint(x: s.width * 0.65, y: s.height * 0.72),
-                       controlPoint1: NSPoint(x: s.width * 0.80, y: s.height * 0.90),
-                       controlPoint2: NSPoint(x: s.width * 0.70, y: s.height * 0.80))
-        }
+        let rightRect = CGRect(
+            x: s.width * 0.7614 - (s.width * 0.2362) / 2,
+            y: s.height * 0.5048 - (s.height * 0.3127) / 2,
+            width: s.width * 0.2362,
+            height: s.height * 0.3127
+        )
+        ctx.fillEllipse(in: rightRect)
 
-        path.close()
-        NSColor.black.setFill()
-        path.fill()
+        ctx.restoreGState()
     }
 
-    // MARK: - Eye drawing
+    // MARK: - Eye drawing (punches transparent holes using .clear blend mode)
 
-    private func drawEyes(expression: Expression, in rect: NSRect) {
-        let s = rect.size
-
-        // Base eye positions & sizes
-        let leftEyeCenter = NSPoint(x: s.width * 0.38, y: s.height * 0.34)
-        let rightEyeCenter = NSPoint(x: s.width * 0.62, y: s.height * 0.34)
-        let eyeWidth: CGFloat = s.width * 0.14
-        let eyeHeight: CGFloat = s.height * 0.22
+    private func drawEyes(ctx: CGContext, expression: Expression, size s: CGSize, offset: CGPoint) {
+        let leftCenter = CGPoint(x: s.width * 0.3575 + offset.x, y: s.height * 0.5048 + offset.y)
+        let rightCenter = CGPoint(x: s.width * 0.7614 + offset.x, y: s.height * 0.5048 + offset.y)
+        let eyeW: CGFloat = s.width * 0.2362
+        let eyeH: CGFloat = s.height * 0.3127
 
         switch expression {
         case .normal:
-            drawOvalEye(center: leftEyeCenter, width: eyeWidth, height: eyeHeight, in: rect)
-            drawOvalEye(center: rightEyeCenter, width: eyeWidth, height: eyeHeight, in: rect)
+            clearOvalEye(ctx: ctx, center: leftCenter, w: eyeW, h: eyeH)
+            clearOvalEye(ctx: ctx, center: rightCenter, w: eyeW, h: eyeH)
 
         case .blink:
-            // Fully closed — thin horizontal lines
-            drawClosedEye(center: leftEyeCenter, width: eyeWidth, in: rect)
-            drawClosedEye(center: rightEyeCenter, width: eyeWidth, in: rect)
+            clearLineEye(ctx: ctx, center: leftCenter, w: eyeW)
+            clearLineEye(ctx: ctx, center: rightCenter, w: eyeW)
 
         case .halfBlink:
-            // Half-closed — squished ovals
-            drawOvalEye(center: leftEyeCenter, width: eyeWidth, height: eyeHeight * 0.35, in: rect)
-            drawOvalEye(center: rightEyeCenter, width: eyeWidth, height: eyeHeight * 0.35, in: rect)
+            clearOvalEye(ctx: ctx, center: leftCenter, w: eyeW, h: eyeH * 0.30)
+            clearOvalEye(ctx: ctx, center: rightCenter, w: eyeW, h: eyeH * 0.30)
 
         case .happy:
-            // Upside-down arcs (^  ^)
-            drawHappyEye(center: leftEyeCenter, width: eyeWidth, height: eyeHeight, in: rect)
-            drawHappyEye(center: rightEyeCenter, width: eyeWidth, height: eyeHeight, in: rect)
+            clearHappyEye(ctx: ctx, center: leftCenter, w: eyeW, h: eyeH)
+            clearHappyEye(ctx: ctx, center: rightCenter, w: eyeW, h: eyeH)
 
         case .angry:
-            // Angled angry eyes with slanted brow
-            drawAngryEye(center: leftEyeCenter, width: eyeWidth, height: eyeHeight, left: true, in: rect)
-            drawAngryEye(center: rightEyeCenter, width: eyeWidth, height: eyeHeight, left: false, in: rect)
+            clearAngryEye(ctx: ctx, center: leftCenter, w: eyeW, h: eyeH, left: true)
+            clearAngryEye(ctx: ctx, center: rightCenter, w: eyeW, h: eyeH, left: false)
 
         case .sleepy:
-            // Droopy half-open eyes
-            drawSleepyEye(center: leftEyeCenter, width: eyeWidth, height: eyeHeight, in: rect)
-            drawSleepyEye(center: rightEyeCenter, width: eyeWidth, height: eyeHeight, in: rect)
+            clearOvalEye(ctx: ctx, center: leftCenter, w: eyeW, h: eyeH * 0.40)
+            clearOvalEye(ctx: ctx, center: rightCenter, w: eyeW, h: eyeH * 0.40)
 
         case .surprised:
-            // Big round eyes
-            let bigW = eyeWidth * 1.2
-            let bigH = eyeHeight * 1.1
-            drawOvalEye(center: leftEyeCenter, width: bigW, height: bigH, in: rect)
-            drawOvalEye(center: rightEyeCenter, width: bigW, height: bigH, in: rect)
+            clearOvalEye(ctx: ctx, center: leftCenter, w: eyeW * 1.15, h: eyeH * 1.05)
+            clearOvalEye(ctx: ctx, center: rightCenter, w: eyeW * 1.15, h: eyeH * 1.05)
 
         case .wink:
-            // Left eye normal, right eye closed
-            drawOvalEye(center: leftEyeCenter, width: eyeWidth, height: eyeHeight, in: rect)
-            drawClosedEye(center: rightEyeCenter, width: eyeWidth, in: rect)
+            clearOvalEye(ctx: ctx, center: leftCenter, w: eyeW, h: eyeH)
+            clearLineEye(ctx: ctx, center: rightCenter, w: eyeW)
         }
     }
 
-    // --- Eye primitives ---
+    // --- Eye primitives (all use .clear blend to punch transparent holes) ---
 
-    /// Standard oval eye (cut out of black head = draw white oval)
-    private func drawOvalEye(center: NSPoint, width: CGFloat, height: CGFloat, in rect: NSRect) {
-        let eyeRect = NSRect(x: center.x - width / 2, y: center.y - height / 2,
-                             width: width, height: height)
-        let path = NSBezierPath(ovalIn: eyeRect)
-        // We use the head as black, eyes are "holes" — draw as white for template
-        NSColor.white.setFill()
-        path.fill()
+    /// Punch a transparent oval hole
+    private func clearOvalEye(ctx: CGContext, center: CGPoint, w: CGFloat, h: CGFloat) {
+        ctx.saveGState()
+        ctx.setBlendMode(.clear)
+        ctx.setFillColor(red: 1, green: 1, blue: 1, alpha: 1)
+        let rect = CGRect(x: center.x - w / 2, y: center.y - h / 2, width: w, height: h)
+        ctx.fillEllipse(in: rect)
+        ctx.restoreGState()
     }
 
-    /// Closed eye — thin horizontal line
-    private func drawClosedEye(center: NSPoint, width: CGFloat, in rect: NSRect) {
-        let lineRect = NSRect(x: center.x - width / 2, y: center.y - 0.5,
-                              width: width, height: 1.0)
-        let path = NSBezierPath(roundedRect: lineRect, xRadius: 0.5, yRadius: 0.5)
-        NSColor.white.setFill()
-        path.fill()
+    /// Punch a thin transparent line (closed eye)
+    private func clearLineEye(ctx: CGContext, center: CGPoint, w: CGFloat) {
+        ctx.saveGState()
+        ctx.setBlendMode(.clear)
+        ctx.setFillColor(red: 1, green: 1, blue: 1, alpha: 1)
+        let lineH: CGFloat = max(1.5, w * 0.12)
+        let rect = CGRect(x: center.x - w / 2, y: center.y - lineH / 2, width: w, height: lineH)
+        ctx.fillEllipse(in: rect)
+        ctx.restoreGState()
     }
 
-    /// Happy eye — upward arc (like ^)
-    private func drawHappyEye(center: NSPoint, width: CGFloat, height: CGFloat, in rect: NSRect) {
-        let path = NSBezierPath()
-        let left = center.x - width / 2
-        let right = center.x + width / 2
-        let baseY = center.y - height * 0.1
-        let peakY = center.y + height * 0.4
+    /// Punch a happy eye (upward arc ^ on screen)
+    private func clearHappyEye(ctx: CGContext, center: CGPoint, w: CGFloat, h: CGFloat) {
+        ctx.saveGState()
+        ctx.setBlendMode(.clear)
+        ctx.setStrokeColor(red: 1, green: 1, blue: 1, alpha: 1)
+        ctx.setLineWidth(max(2.0, w * 0.20))
+        ctx.setLineCap(.round)
 
-        path.move(to: NSPoint(x: left, y: baseY))
-        path.curve(to: NSPoint(x: right, y: baseY),
-                   controlPoint1: NSPoint(x: left + width * 0.15, y: peakY),
-                   controlPoint2: NSPoint(x: right - width * 0.15, y: peakY))
+        // Flipped vertically because CGContext draws upside down relative to the screen.
+        // Happy eye is an upward arc on screen, so it must be a downward arc in CGContext.
+        let left = center.x - w / 2
+        let right = center.x + w / 2
+        let baseY = center.y + h * 0.10
+        let peakY = center.y - h * 0.40
 
-        path.lineWidth = 1.5
-        NSColor.white.setStroke()
-        path.stroke()
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: left, y: baseY))
+        path.addCurve(to: CGPoint(x: right, y: baseY),
+                      control1: CGPoint(x: left + w * 0.15, y: peakY),
+                      control2: CGPoint(x: right - w * 0.15, y: peakY))
+        ctx.addPath(path)
+        ctx.strokePath()
+        ctx.restoreGState()
     }
 
-    /// Angry eye — normal oval with an angled brow line cutting across the top
-    private func drawAngryEye(center: NSPoint, width: CGFloat, height: CGFloat, left: Bool, in rect: NSRect) {
-        // Draw the base oval eye
-        drawOvalEye(center: center, width: eyeWidth(width), height: height * 0.75, in: rect)
+    /// Punch angry eye: smaller oval + opaque brow line on top
+    private func clearAngryEye(ctx: CGContext, center: CGPoint, w: CGFloat, h: CGFloat, left: Bool) {
+        // First punch the eye hole
+        clearOvalEye(ctx: ctx, center: center, w: w, h: h * 0.75)
 
-        // Draw angry eyebrow (angled line above eye)
-        let path = NSBezierPath()
-        let browY = center.y + height * 0.40
-        let browOffsetY: CGFloat = height * 0.25
+        // Flipped vertically:
+        // Brow line is below the eye center (closer to forehead at Y=0)
+        ctx.saveGState()
+        ctx.setBlendMode(.normal)
+        ctx.setStrokeColor(red: 1, green: 1, blue: 1, alpha: 1) // Solid white to blend with body
+        ctx.setLineWidth(max(2.0, w * 0.22))
+        ctx.setLineCap(.round)
 
+        let browY = center.y - h * 0.35
+        let browDelta: CGFloat = h * 0.30
+
+        let path = CGMutablePath()
         if left {
-            // Left eye: brow goes from upper-left down to lower-right (\ shape)
-            path.move(to: NSPoint(x: center.x - width * 0.6, y: browY + browOffsetY))
-            path.line(to: NSPoint(x: center.x + width * 0.6, y: browY - browOffsetY * 0.3))
+            // \ angle on screen
+            path.move(to: CGPoint(x: center.x - w * 0.65, y: browY - browDelta))
+            path.addLine(to: CGPoint(x: center.x + w * 0.65, y: browY + browDelta * 0.4))
         } else {
-            // Right eye: brow goes from lower-left up to upper-right (/ shape)
-            path.move(to: NSPoint(x: center.x - width * 0.6, y: browY - browOffsetY * 0.3))
-            path.line(to: NSPoint(x: center.x + width * 0.6, y: browY + browOffsetY))
+            // / angle on screen
+            path.move(to: CGPoint(x: center.x - w * 0.65, y: browY + browDelta * 0.4))
+            path.addLine(to: CGPoint(x: center.x + w * 0.65, y: browY - browDelta))
         }
-
-        path.lineWidth = 1.8
-        path.lineCapStyle = .round
-        NSColor.black.setStroke()
-        path.stroke()
-    }
-
-    private func eyeWidth(_ w: CGFloat) -> CGFloat { w }
-
-    /// Sleepy eye — half-lidded droopy oval
-    private func drawSleepyEye(center: NSPoint, width: CGFloat, height: CGFloat, in rect: NSRect) {
-        // Draw bottom half of the oval
-        let eyeRect = NSRect(x: center.x - width / 2, y: center.y - height * 0.3,
-                             width: width, height: height * 0.45)
-        let path = NSBezierPath(ovalIn: eyeRect)
-        NSColor.white.setFill()
-        path.fill()
+        ctx.addPath(path)
+        ctx.strokePath()
+        ctx.restoreGState()
     }
 }

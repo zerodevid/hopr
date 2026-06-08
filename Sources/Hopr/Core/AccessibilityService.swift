@@ -452,9 +452,35 @@ final class AccessibilityService {
         return found
     }
 
+    /// Check if the active/frontmost application is in native fullscreen mode
+    func isAppFullscreen(_ app: NSRunningApplication? = nil) -> Bool {
+        let frontApp = app ?? NSWorkspace.shared.frontmostApplication
+        guard let frontApp = frontApp else { return false }
+        let appElement = AXUIElementCreateApplication(frontApp.processIdentifier)
+        if let window = getFrontmostWindow(from: appElement) {
+            var val: CFTypeRef?
+            if AXUIElementCopyAttributeValue(window, kAXSubroleAttribute as CFString, &val) == .success,
+               let subrole = val as? String,
+               subrole == "AXFullScreenWindow" {
+                return true
+            }
+            var fsVal: CFTypeRef?
+            if AXUIElementCopyAttributeValue(window, "AXFullScreen" as CFString, &fsVal) == .success,
+               let num = fsVal as? NSNumber {
+                return num.boolValue
+            }
+        }
+        return false
+    }
+
     /// Slow scan: Dock + status bar accessory apps (system overlays).
     /// Call this on a background thread after fast scan completes.
     func getSystemOverlayElements() -> [UIElement] {
+        if isAppFullscreen() {
+            Log.info("Frontmost app is fullscreen. Skipping system wide overlay scan (Dock and Menu bar).")
+            return []
+        }
+
         var overlays: [UIElement] = []
 
         // 1. Scan Dock

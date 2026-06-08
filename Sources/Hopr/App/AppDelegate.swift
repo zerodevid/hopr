@@ -22,6 +22,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             Log.info("Accessibility permissions granted")
         }
 
+        applyDockIcon()
+
         setupStatusBar()
         setupModes()
 
@@ -114,7 +116,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func handleAppActivation(_ notification: Notification) {
         // When user switches to a new app, pre-scan its UI elements in background
         // so hint mode can show labels instantly
-        if modeController.currentMode != .idle {
+        if modeController.currentMode != .idle && modeController.currentMode != .mouse {
             modeController.deactivateCurrentMode()
         }
         if let app = notification.object as? NSRunningApplication {
@@ -322,6 +324,45 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case .mouse:
             mouseMode.activate()
             menubarAnimator?.playAngry()
+        }
+    }
+
+    private func resizeAndPadIcon(_ image: NSImage, scaleFactor: CGFloat = 0.80) -> NSImage {
+        let targetSize = NSSize(width: 512, height: 512)
+        let paddedImage = NSImage(size: targetSize)
+        
+        paddedImage.lockFocus()
+        
+        // Clear background to be completely transparent
+        NSColor.clear.set()
+        NSRect(origin: .zero, size: targetSize).fill()
+        
+        let w = targetSize.width * scaleFactor
+        let h = targetSize.height * scaleFactor
+        let x = (targetSize.width - w) / 2
+        let y = (targetSize.height - h) / 2
+        let destRect = NSRect(x: x, y: y, width: w, height: h)
+        
+        image.draw(in: destRect, from: NSRect(origin: .zero, size: image.size), operation: .sourceOver, fraction: 1.0)
+        
+        paddedImage.unlockFocus()
+        return paddedImage
+    }
+
+    func applyDockIcon() {
+        let fm = FileManager.default
+        let localPath = fm.currentDirectoryPath + "/Resources/icon.png"
+        let absolutePath = "/Users/macbook/Documents/Project/clone_hopr/Resources/icon.png"
+        
+        var iconImage: NSImage? = nil
+        if fm.fileExists(atPath: localPath) {
+            iconImage = NSImage(contentsOfFile: localPath)
+        } else if fm.fileExists(atPath: absolutePath) {
+            iconImage = NSImage(contentsOfFile: absolutePath)
+        }
+        
+        if let icon = iconImage {
+            NSApplication.shared.applicationIconImage = resizeAndPadIcon(icon, scaleFactor: 0.80)
         }
     }
 }

@@ -3,41 +3,63 @@ import SwiftUI
 struct AboutTab: View {
     @ObservedObject var settings = AppSettings.shared
 
+    private var appIcon: NSImage? {
+        let fm = FileManager.default
+        let localPath = fm.currentDirectoryPath + "/Resources/icon.png"
+        let absolutePath = "/Users/macbook/Documents/Project/clone_hopr/Resources/icon.png"
+        
+        if fm.fileExists(atPath: localPath) {
+            return NSImage(contentsOfFile: localPath)
+        } else if fm.fileExists(atPath: absolutePath) {
+            return NSImage(contentsOfFile: absolutePath)
+        }
+        return nil
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // Hero section
-            VStack(spacing: 12) {
-                // Icon backdrop
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [Color(nsColor: .controlAccentColor),
-                                     Color(nsColor: .controlAccentColor).opacity(0.7)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: 72, height: 72)
-                    .shadow(color: Color(nsColor: .controlAccentColor).opacity(0.4), radius: 12, x: 0, y: 4)
+            VStack(spacing: 16) {
+                if let nsImage = appIcon {
+                    Image(nsImage: nsImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 72, height: 72)
+                        .shadow(color: Color.black.opacity(0.18), radius: 8, x: 0, y: 3)
+                } else {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 22, style: .continuous)
+                            .fill(
+                                LinearGradient(
+                                    colors: [Color(nsColor: .controlAccentColor),
+                                             Color(nsColor: .controlAccentColor).opacity(0.7)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .frame(width: 72, height: 72)
+                            .shadow(color: Color(nsColor: .controlAccentColor).opacity(0.4), radius: 12, x: 0, y: 4)
 
-                Image(systemName: "keyboard.fill")
-                    .font(.system(size: 30, weight: .semibold))
-                    .foregroundColor(.white)
-            }
+                        Image(systemName: "keyboard.fill")
+                            .font(.system(size: 30, weight: .semibold))
+                            .foregroundColor(.white)
+                    }
+                }
 
-            VStack(spacing: 4) {
-                Text("Hopr")
-                    .font(.system(size: 20, weight: .bold))
-                Text("Version 1.0.0")
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
-                Text("Keyboard-driven navigation for macOS")
-                    .font(.system(size: 13))
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
+                VStack(spacing: 4) {
+                    Text("Hopr")
+                        .font(.system(size: 20, weight: .bold))
+                    Text("Version 1.0.0")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                    Text("Keyboard-driven navigation for macOS")
+                        .font(.system(size: 13))
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                }
             }
             .padding(.top, 28)
-            .padding(.bottom, 20)
+            .padding(.bottom, 24)
 
             Divider()
                 .padding(.horizontal, 24)

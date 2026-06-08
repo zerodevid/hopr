@@ -31,11 +31,11 @@ final class OverlayWindowController {
             maxY = max(maxY, f.maxY)
         }
 
-        // Create one big transparent window covering all elements
+        // Create one big transparent panel covering all elements
         let screenFrame = NSScreen.main?.frame ?? NSScreen.screens[0].frame
-        let win = NSWindow(
+        let win = NSPanel(
             contentRect: screenFrame,
-            styleMask: .borderless,
+            styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
@@ -45,6 +45,7 @@ final class OverlayWindowController {
         win.hasShadow = false
         win.ignoresMouseEvents = true
         win.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        win.hidesOnDeactivate = false
         win.isReleasedWhenClosed = false
 
         let container = NSView(frame: screenFrame)
@@ -113,14 +114,14 @@ final class OverlayWindowController {
         let wasVisible = mainWindow != nil
         if !wasVisible {
             win.alphaValue = 0.0
-            win.orderFront(nil)
+            win.orderFrontRegardless()
             NSAnimationContext.runAnimationGroup({ context in
                 context.duration = 0.12
                 context.timingFunction = CAMediaTimingFunction(name: .easeOut)
                 win.animator().alphaValue = 1.0
             }, completionHandler: nil)
         } else {
-            win.orderFront(nil)
+            win.orderFrontRegardless()
         }
         mainWindow = win
         Self.bringHUDToFront()
@@ -130,7 +131,7 @@ final class OverlayWindowController {
         guard let win = mainWindow else { return }
         if visible {
             win.alphaValue = 0.0
-            win.orderFront(nil)
+            win.orderFrontRegardless()
             NSAnimationContext.runAnimationGroup({ context in
                 context.duration = 0.12
                 context.timingFunction = CAMediaTimingFunction(name: .easeOut)
@@ -221,7 +222,7 @@ final class OverlayWindowController {
             let window = createOverlayWindow(frame: area.screenFrame)
             window.contentView = boxView
             window.alphaValue = 0.0
-            window.orderFront(nil)
+            window.orderFrontRegardless()
             
             NSAnimationContext.runAnimationGroup({ context in
                 context.duration = 0.15
@@ -277,9 +278,9 @@ final class OverlayWindowController {
         let panelWidth = view.frame.width + padding * 2
         let panelHeight: CGFloat = 32
 
-        let panel = NSWindow(
+        let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight),
-            styleMask: .borderless,
+            styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
@@ -290,6 +291,7 @@ final class OverlayWindowController {
         panel.ignoresMouseEvents = true
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.hidesOnDeactivate = false
         panel.contentView?.wantsLayer = true
         panel.contentView?.layer?.cornerRadius = 8
 
@@ -304,7 +306,7 @@ final class OverlayWindowController {
             ))
         }
 
-        panel.orderFront(nil)
+        panel.orderFrontRegardless()
         modeLabelWindow = panel
     }
 
@@ -356,7 +358,7 @@ final class OverlayWindowController {
             height: panelHeight
         )
         
-        let panel = NSWindow(
+        let panel = NSPanel(
             contentRect: targetFrame,
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
@@ -369,6 +371,7 @@ final class OverlayWindowController {
         panel.ignoresMouseEvents = true
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.hidesOnDeactivate = false
         
         let contentView = NSView(frame: NSRect(origin: .zero, size: targetFrame.size))
         contentView.wantsLayer = true
@@ -424,7 +427,7 @@ final class OverlayWindowController {
         
         // Animate Fade-In
         panel.alphaValue = 0.0
-        panel.orderFront(nil)
+        panel.orderFrontRegardless()
         
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = 0.15
@@ -688,9 +691,9 @@ final class OverlayWindowController {
     }
 
     private func createOverlayWindow(frame: NSRect) -> NSWindow {
-        let window = NSWindow(
+        let window = NSPanel(
             contentRect: frame,
-            styleMask: .borderless,
+            styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
@@ -700,6 +703,7 @@ final class OverlayWindowController {
         window.hasShadow = false
         window.ignoresMouseEvents = true
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        window.hidesOnDeactivate = false
         window.isReleasedWhenClosed = false
         return window
     }

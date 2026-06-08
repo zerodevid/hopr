@@ -31,10 +31,10 @@ final class AppSettings: ObservableObject {
     @AppStorage("mouseSpeed") var mouseSpeed: Double = 12
     @AppStorage("mouseFastSpeed") var mouseFastSpeed: Double = 40
     @AppStorage("mouseDragDelay") var mouseDragDelay: Double = 0.20
-    @AppStorage("mouseKeyUp") var mouseKeyUp: Int = 38           // J (kVK_ANSI_J)
-    @AppStorage("mouseKeyDown") var mouseKeyDown: Int = 40       // K (kVK_ANSI_K)
-    @AppStorage("mouseKeyLeft") var mouseKeyLeft: Int = 4         // H (kVK_ANSI_H)
-    @AppStorage("mouseKeyRight") var mouseKeyRight: Int = 37       // L (kVK_ANSI_L)
+    @AppStorage("mouseKeyUp") var mouseKeyUp: Int = 13           // W (kVK_ANSI_W)
+    @AppStorage("mouseKeyDown") var mouseKeyDown: Int = 1        // S (kVK_ANSI_S)
+    @AppStorage("mouseKeyLeft") var mouseKeyLeft: Int = 0        // A (kVK_ANSI_A)
+    @AppStorage("mouseKeyRight") var mouseKeyRight: Int = 2      // D (kVK_ANSI_D)
 
     // Ignored Apps
     @AppStorage("ignoredApps") var ignoredAppsData: Data = Data()
@@ -72,6 +72,14 @@ final class AppSettings: ObservableObject {
         // Synchronize initial state of launch at login from system SMAppService
         let status = SMAppService.mainApp.status
         self.launchAtLogin = (status == .enabled)
+
+        // Migrate old copy-pasted default mouse keys (J,K,H,L) to WASD (13, 1, 0, 2)
+        if mouseKeyUp == 38 && mouseKeyDown == 40 && mouseKeyLeft == 4 && mouseKeyRight == 37 {
+            mouseKeyUp = 13
+            mouseKeyDown = 1
+            mouseKeyLeft = 0
+            mouseKeyRight = 2
+        }
     }
 
     func isAppIgnored(_ bundleIdentifier: String?) -> Bool {
@@ -201,10 +209,10 @@ final class AppSettings: ObservableObject {
         mouseSpeed = 12
         mouseFastSpeed = 40
         mouseDragDelay = 0.20
-        mouseKeyUp = 38
-        mouseKeyDown = 40
-        mouseKeyLeft = 4
-        mouseKeyRight = 37
+        mouseKeyUp = 13
+        mouseKeyDown = 1
+        mouseKeyLeft = 0
+        mouseKeyRight = 2
     }
 
     func resetIgnoredAppsSettings() {

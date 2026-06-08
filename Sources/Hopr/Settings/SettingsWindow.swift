@@ -57,7 +57,7 @@ final class SettingsToolbarDelegate: NSObject, NSToolbarDelegate {
 }
 
 // MARK: - Settings Window
-final class SettingsWindow: NSObject {
+final class SettingsWindow: NSObject, NSWindowDelegate {
     static let shared = SettingsWindow()
 
     private var window: NSWindow?
@@ -68,9 +68,17 @@ final class SettingsWindow: NSObject {
     private override init() {}
 
     func show() {
+        // Promoted dynamically to regular so it displays in Dock
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+
+        // Re-apply Dock icon because changing activation policy resets it to default process icon
+        if let appDelegate = NSApp.delegate as? AppDelegate {
+            appDelegate.applyDockIcon()
+        }
+
         if let existing = window, existing.isVisible {
             existing.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
             return
         }
         buildWindow()
@@ -82,6 +90,7 @@ final class SettingsWindow: NSObject {
         hostingController = hostingVC
 
         let win = NSWindow(contentViewController: hostingVC)
+        win.delegate = self
         win.title = currentTab.rawValue
         win.styleMask = [.titled, .closable, .miniaturizable]
         win.setContentSize(contentSize(for: currentTab))
@@ -156,5 +165,10 @@ final class SettingsWindow: NSObject {
         case .ignored:   return NSSize(width: 580, height: 400)
         case .about:     return NSSize(width: 580, height: 600)
         }
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        // Demote app back to accessory to hide Dock icon when settings window is closed
+        NSApp.setActivationPolicy(.accessory)
     }
 }

@@ -125,7 +125,7 @@ final class ModeIndicator {
                     width: targetFrame.size.width,
                     height: targetFrame.size.height
                 ), display: true)
-                window.orderFront(nil)
+                window.orderFrontRegardless()
             }
             
             NSAnimationContext.runAnimationGroup({ context in
@@ -135,14 +135,14 @@ final class ModeIndicator {
                 window.animator().setFrame(targetFrame, display: true)
             }, completionHandler: nil)
         } else {
-            window.orderFront(nil)
+            window.orderFrontRegardless()
         }
     }
 
     private func createWindow() {
-        let win = NSWindow(
+        let win = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 300, height: 32),
-            styleMask: .borderless,
+            styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
@@ -152,6 +152,7 @@ final class ModeIndicator {
         win.hasShadow = true
         win.ignoresMouseEvents = true
         win.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        win.hidesOnDeactivate = false
         win.isReleasedWhenClosed = false
         self.window = win
     }

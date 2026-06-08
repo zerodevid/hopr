@@ -111,7 +111,10 @@ struct ToggleRow: View {
 
     var body: some View {
         LabeledRow(label, subtitle: subtitle, isLast: isLast) {
-            Toggle("", isOn: $value).labelsHidden()
+            Toggle("", isOn: $value)
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .labelsHidden()
         }
     }
 }
