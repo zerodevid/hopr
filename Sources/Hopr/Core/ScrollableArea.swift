@@ -15,9 +15,9 @@ struct ScrollableArea: Identifiable {
             self.screenFrame = sf
         } else {
             // Convert AX → screen
-            let screenHeight = NSScreen.main?.frame.height ?? 1000
+            let primaryHeight = NSScreen.screens.first?.frame.height ?? 1080
             self.screenFrame = CGRect(
-                origin: CGPoint(x: frame.origin.x, y: screenHeight - frame.origin.y - frame.height),
+                origin: CGPoint(x: frame.origin.x, y: primaryHeight - frame.origin.y - frame.height),
                 size: frame.size
             )
         }

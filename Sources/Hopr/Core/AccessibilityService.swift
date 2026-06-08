@@ -1023,7 +1023,7 @@ final class AccessibilityService {
             }
         }
 
-        let screenHeight = NSScreen.main?.frame.height ?? 1000
+        let primaryHeight = NSScreen.screens.first?.frame.height ?? 1080
         var allAreas: [ScrollableArea] = []
 
         for window in targetWindows {
@@ -1052,7 +1052,7 @@ final class AccessibilityService {
             } else {
                 // Fallback: use the whole window as a scroll area
                 let screenFrame = CGRect(
-                    origin: CGPoint(x: windowFrame.origin.x, y: screenHeight - windowFrame.origin.y - windowFrame.height),
+                    origin: CGPoint(x: windowFrame.origin.x, y: primaryHeight - windowFrame.origin.y - windowFrame.height),
                     size: windowFrame.size
                 )
                 allAreas.append(ScrollableArea(element: window, frame: windowFrame, screenFrame: screenFrame))
@@ -1173,9 +1173,9 @@ final class AccessibilityService {
         var areas: [ScrollableArea] = []
         for window in NSApplication.shared.windows where window.isVisible && window.frame.height > 200 {
             let frame = window.frame
-            let screenHeight = NSScreen.main?.frame.height ?? 1000
+            let primaryHeight = NSScreen.screens.first?.frame.height ?? 1080
             let axFrame = CGRect(
-                origin: CGPoint(x: frame.origin.x, y: screenHeight - frame.origin.y - frame.height),
+                origin: CGPoint(x: frame.origin.x, y: primaryHeight - frame.origin.y - frame.height),
                 size: frame.size
             )
             areas.append(ScrollableArea(element: AXUIElementCreateApplication(0), frame: axFrame))

@@ -73,14 +73,24 @@ Berikut adalah lima pembaruan utama yang telah ditambahkan ke dalam codebase:
 
 ---
 
+### 6. Perbaikan Koordinat Multi-Monitor (Multi-Monitor Coordinate Fix)
+*   **Tujuan**: Memastikan balon petunjuk (*hint labels*) dan kotak sorot (*highlight boxes*) digambar tepat di atas elemen UI yang sesungguhnya di monitor mana pun pada sistem multi-monitor.
+*   **Mekanisme**:
+    *   Mengganti kalkulasi pembalikan sumbu-$y$ Cocoa asinkron dari menggunakan tinggi monitor lokal (`screen.frame.height`) menjadi tinggi layar utama (`NSScreen.screens.first?.frame.height`), yang berfungsi sebagai basis pembalikan global di seluruh monitor.
+    *   Mengubah pembuatan jendela overlay transparan (`NSPanel`) di `OverlayWindowController` agar membentang di seluruh area gabungan semua monitor (`unionFrame`), mencegah pemotongan (*clipping*) visual pada monitor sekunder.
+    *   Menyesuaikan `determinePosition` dan `resolveOverlap` agar menggunakan dimensi layar lokal elemen terkait, memastikan pergeseran tabrakan label tetap terikat pada batas fisik monitor masing-masing.
+
+---
+
 ## 📁 Pemetaan Berkas yang Diubah
 
 | Jalur Berkas | Deskripsi Modifikasi |
 | :--- | :--- |
 | [`Sources/Hopr/App/AppDelegate.swift`](file:///Users/macbook/Documents/Project/clone_hopr/Sources/Hopr/App/AppDelegate.swift) | Menghubungkan callback pemantauan Shift dan visibility change dari `HintMode` untuk menampilkan/menyembunyikan HUD `ModeIndicator`. |
-| [`Sources/Hopr/Core/AccessibilityService.swift`](file:///Users/macbook/Documents/Project/clone_hopr/Sources/Hopr/Core/AccessibilityService.swift) | Menambahkan pengecualian jarak titik pusat (> 8px) pada fungsi `deduplicateOverlapping` untuk menjaga elemen tumpang tindih yang valid. |
+| [`Sources/Hopr/Core/AccessibilityService.swift`](file:///Users/macbook/Documents/Project/clone_hopr/Sources/Hopr/Core/AccessibilityService.swift) | Menambahkan pengecualian jarak titik pusat (> 8px) pada fungsi `deduplicateOverlapping` untuk menjaga elemen tumpang tindih yang valid, serta menggunakan basis tinggi layar utama untuk koordinat area scroll. |
+| [`Sources/Hopr/Core/ScrollableArea.swift`](file:///Users/macbook/Documents/Project/clone_hopr/Sources/Hopr/Core/ScrollableArea.swift) | Menggunakan tinggi layar utama untuk kalkulasi pembalikan koordinat global. |
 | [`Sources/Hopr/Core/UIElement.swift`](file:///Users/macbook/Documents/Project/clone_hopr/Sources/Hopr/Core/UIElement.swift) | Memperbaiki simulasi pemindahan kursor (`moveCursorTo`) menggunakan offset 1-piksel dan jeda 10ms untuk memicu hover state secara andal. |
 | [`Sources/Hopr/Input/HotkeyManager.swift`](file:///Users/macbook/Documents/Project/clone_hopr/Sources/Hopr/Input/HotkeyManager.swift) | Menambahkan penanganan event `.flagsChanged` untuk mendeteksi penekanan tombol Shift serta memperbarui pintasan global agar dapat di-toggle/di-switch secara langsung. |
 | [`Sources/Hopr/Modes/HintMode.swift`](file:///Users/macbook/Documents/Project/clone_hopr/Sources/Hopr/Modes/HintMode.swift) | Menerapkan logika *double-tap Shift* untuk menyembunyikan/menampilkan petunjuk sementara (`isTemporarilyDisabled`) dan menangguhkan pencegatan tombol. |
 | [`Sources/Hopr/Modes/ModeController.swift`](file:///Users/macbook/Documents/Project/clone_hopr/Sources/Hopr/Modes/ModeController.swift) | Menyediakan delegasi penanganan event penekanan Shift (`handleShiftKeyChanged`) ke mode aktif, serta mengaktifkan penonaktifan otomatis mode aktif sebelum memulai mode baru. |
-| [`Sources/Hopr/Overlay/OverlayWindowController.swift`](file:///Users/macbook/Documents/Project/clone_hopr/Sources/Hopr/Overlay/OverlayWindowController.swift) | Menambahkan fungsi `setOverlayVisible` dengan animasi perubahan alpha (fade-in 0.12s dan fade-out 0.10s) untuk jendela overlay utama. |
+| [`Sources/Hopr/Overlay/OverlayWindowController.swift`](file:///Users/macbook/Documents/Project/clone_hopr/Sources/Hopr/Overlay/OverlayWindowController.swift) | Menambahkan fungsi `setOverlayVisible` dengan animasi, memperluas jendela overlay ke seluruh gabungan layar monitor, dan mengoreksi pembalikan koordinat multi-monitor dengan tinggi monitor utama. |

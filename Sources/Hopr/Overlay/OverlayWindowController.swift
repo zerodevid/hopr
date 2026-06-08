@@ -31,8 +31,13 @@ final class OverlayWindowController {
             maxY = max(maxY, f.maxY)
         }
 
-        // Create one big transparent panel covering all elements
-        let screenFrame = NSScreen.main?.frame ?? NSScreen.screens[0].frame
+        // Create one big transparent panel covering all screens (multi-monitor support)
+        var unionFrame = CGRect.null
+        for screen in NSScreen.screens {
+            unionFrame = unionFrame.union(screen.frame)
+        }
+        let screenFrame = unionFrame.isNull ? (NSScreen.main?.frame ?? NSScreen.screens[0].frame) : unionFrame
+        
         let win = NSPanel(
             contentRect: screenFrame,
             styleMask: [.borderless, .nonactivatingPanel],
@@ -52,21 +57,26 @@ final class OverlayWindowController {
         container.wantsLayer = true
 
         // Add all labels as subviews with smart positioning
-        let screenMidX = screenFrame.midX
-        let screenMidY = screenFrame.midY
         var placedFrames: [NSRect] = []
 
         for item in elementsWithFrames {
             let elem = item.elem
             let frame = item.frame
 
+            // Find the local screen frame for correct boundary/positioning checks
+            let elemCenter = CGPoint(x: frame.midX, y: frame.midY)
+            let elementScreen = bestScreen(for: elemCenter) ?? NSScreen.main ?? NSScreen.screens[0]
+            let localScreenFrame = elementScreen.frame
+            let localMidX = localScreenFrame.midX
+            let localMidY = localScreenFrame.midY
+
             let position = determinePosition(
                 for: elem,
                 elemFrame: frame,
                 allElementsWithFrames: elementsWithFrames,
-                screenFrame: screenFrame,
-                screenMidX: screenMidX,
-                screenMidY: screenMidY
+                screenFrame: localScreenFrame,
+                screenMidX: localMidX,
+                screenMidY: localMidY
             )
 
             let labelView = LabelView(label: elem.label, position: position)
@@ -100,7 +110,7 @@ final class OverlayWindowController {
             let resolvedFrame = resolveOverlap(
                 proposedFrame: proposedFrame,
                 existingFrames: placedFrames,
-                screenFrame: screenFrame,
+                screenFrame: localScreenFrame,
                 position: position
             )
 
@@ -503,11 +513,10 @@ final class OverlayWindowController {
     func showDragHighlight(at point: CGPoint, size: CGSize) {
         guard let container = mainWindow?.contentView else { return }
         
-        let screen = bestScreen(for: point) ?? NSScreen.main ?? NSScreen.screens[0]
-        let screenHeight = screen.frame.height
+        let primaryHeight = NSScreen.screens.first?.frame.height ?? 1080
         
         let frameX = point.x - size.width / 2
-        let flippedY = screenHeight - point.y - size.height / 2
+        let flippedY = primaryHeight - point.y - size.height / 2
         let targetFrame = NSRect(x: frameX, y: flippedY, width: size.width, height: size.height)
         
         if let box = highlightBoxView {
@@ -710,10 +719,8 @@ final class OverlayWindowController {
 
     private func windowFrameFor(_ element: UIElement) -> NSRect {
         let axFrame = element.frame
-        let axCenter = CGPoint(x: axFrame.midX, y: axFrame.midY)
-        let screen = bestScreen(for: axCenter) ?? NSScreen.main ?? NSScreen.screens[0]
-        let screenHeight = screen.frame.height
-        let flippedY = screenHeight - axFrame.origin.y - axFrame.size.height
+        let primaryHeight = NSScreen.screens.first?.frame.height ?? 1080
+        let flippedY = primaryHeight - axFrame.origin.y - axFrame.size.height
 
         return NSRect(
             x: axFrame.origin.x,
@@ -729,10 +736,8 @@ final class OverlayWindowController {
             return accurate
         }
         // Fallback: flip AX coordinates
-        let axCenter = CGPoint(x: axFrame.midX, y: axFrame.midY)
-        let screen = bestScreen(for: axCenter) ?? NSScreen.main ?? NSScreen.screens[0]
-        let screenHeight = screen.frame.height
-        let flippedY = screenHeight - axFrame.origin.y - axFrame.size.height
+        let primaryHeight = NSScreen.screens.first?.frame.height ?? 1080
+        let flippedY = primaryHeight - axFrame.origin.y - axFrame.size.height
 
         return NSRect(
             x: axFrame.origin.x,
