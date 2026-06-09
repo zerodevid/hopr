@@ -6,12 +6,15 @@ struct AboutTab: View {
     private var appIcon: NSImage? {
         let fm = FileManager.default
         let localPath = fm.currentDirectoryPath + "/Resources/icon.png"
-        let absolutePath = "/Users/macbook/Documents/Project/clone_hopr/Resources/icon.png"
-        
+
         if fm.fileExists(atPath: localPath) {
             return NSImage(contentsOfFile: localPath)
-        } else if fm.fileExists(atPath: absolutePath) {
-            return NSImage(contentsOfFile: absolutePath)
+        }
+        if let resourcePath = Bundle.main.resourcePath {
+            let bundlePath = (resourcePath as NSString).appendingPathComponent("icon.png")
+            if fm.fileExists(atPath: bundlePath) {
+                return NSImage(contentsOfFile: bundlePath)
+            }
         }
         return nil
     }

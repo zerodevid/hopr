@@ -17,6 +17,21 @@ struct KeyModifiers {
     static let none = KeyModifiers(shift: false, command: false, control: false, option: false)
 }
 
+/// Protocol that all modes must conform to.
+protocol Mode: AnyObject {
+    func activate()
+    func deactivate()
+    func handleKeyPress(_ key: String, keyCode: UInt16, isRepeat: Bool, modifiers: KeyModifiers) -> Bool
+    func handleKeyUp(_ key: String, keyCode: UInt16)
+    func handleShiftKeyChanged(isPressed: Bool)
+    func handleFnKeyChanged(isPressed: Bool)
+}
+
+extension Mode {
+    func handleShiftKeyChanged(isPressed: Bool) {}
+    func handleFnKeyChanged(isPressed: Bool) {}
+}
+
 protocol ModeDelegate: AnyObject {
     var currentMode: AppMode { get }
     func activateHintMode()
@@ -33,68 +48,41 @@ protocol ModeDelegate: AnyObject {
 final class ModeController: ModeDelegate {
 
     private(set) var currentMode: AppMode = .idle
+    private var modes: [AppMode: Mode] = [:]
 
     var onModeChange: ((AppMode) -> Void)?
-    var onHintKeyPress: ((String, UInt16, Bool, KeyModifiers) -> Bool)?
-    var onHintKeyUp: ((String, UInt16) -> Void)?
-    var onHintShiftKeyChanged: ((Bool) -> Void)?
-    var onHintFnKeyChanged: ((Bool) -> Void)?
-    var onScrollKeyPress: ((UInt16, Bool) -> Bool)?
-    var onScrollKeyUp: ((UInt16) -> Void)?
-    var onSearchKeyPress: ((String, UInt16, Bool) -> Bool)?
-    var onMouseKeyPress: ((String, UInt16, Bool, KeyModifiers) -> Bool)?
-    var onMouseKeyUp: ((UInt16) -> Void)?
+
+    func registerMode(_ mode: Mode, for appMode: AppMode) {
+        modes[appMode] = mode
+    }
 
     func activateHintMode() {
-        if currentMode != .idle {
-            deactivateCurrentMode()
-        }
-        guard !isCurrentAppIgnored() else {
-            Log.info("Hint mode blocked: app is in ignored list")
-            return
-        }
-        currentMode = .hint
-        Log.info("Entered hint mode")
-        onModeChange?(.hint)
+        activate(.hint)
     }
 
     func activateScrollMode() {
-        if currentMode != .idle {
-            deactivateCurrentMode()
-        }
-        guard !isCurrentAppIgnored() else {
-            Log.info("Scroll mode blocked: app is in ignored list")
-            return
-        }
-        currentMode = .scroll
-        Log.info("Entered scroll mode")
-        onModeChange?(.scroll)
+        activate(.scroll)
     }
 
     func activateSearchMode() {
-        if currentMode != .idle {
-            deactivateCurrentMode()
-        }
-        guard !isCurrentAppIgnored() else {
-            Log.info("Search mode blocked: app is in ignored list")
-            return
-        }
-        currentMode = .search
-        Log.info("Entered search mode")
-        onModeChange?(.search)
+        activate(.search)
     }
 
     func activateMouseMode() {
+        activate(.mouse)
+    }
+
+    private func activate(_ mode: AppMode) {
         if currentMode != .idle {
             deactivateCurrentMode()
         }
         guard !isCurrentAppIgnored() else {
-            Log.info("Mouse mode blocked: app is in ignored list")
+            Log.info("\(mode) mode blocked: app is in ignored list")
             return
         }
-        currentMode = .mouse
-        Log.info("Entered mouse mode")
-        onModeChange?(.mouse)
+        currentMode = mode
+        Log.info("Entered \(mode) mode")
+        onModeChange?(mode)
     }
 
     private func isCurrentAppIgnored() -> Bool {
@@ -109,45 +97,20 @@ final class ModeController: ModeDelegate {
         onModeChange?(.idle)
     }
 
-    /// Handle key up events
     func handleKeyUp(_ key: String, keyCode: UInt16) {
-        switch currentMode {
-        case .scroll:
-            onScrollKeyUp?(keyCode)
-        case .hint:
-            onHintKeyUp?(key, keyCode)
-        case .mouse:
-            onMouseKeyUp?(keyCode)
-        default:
-            break
-        }
+        modes[currentMode]?.handleKeyUp(key, keyCode: keyCode)
     }
 
     func handleShiftKeyChanged(isPressed: Bool) {
-        if currentMode == .hint {
-            onHintShiftKeyChanged?(isPressed)
-        }
+        modes[currentMode]?.handleShiftKeyChanged(isPressed: isPressed)
     }
 
     func handleFnKeyChanged(isPressed: Bool) {
-        if currentMode == .hint {
-            onHintFnKeyChanged?(isPressed)
-        }
+        modes[currentMode]?.handleFnKeyChanged(isPressed: isPressed)
     }
 
-    /// Returns true if the key was consumed (should suppress the event)
     func handleKeyPress(_ key: String, keyCode: UInt16, isRepeat: Bool, modifiers: KeyModifiers) -> Bool {
-        switch currentMode {
-        case .idle:
-            return false
-        case .hint:
-            return onHintKeyPress?(key, keyCode, isRepeat, modifiers) ?? false
-        case .scroll:
-            return onScrollKeyPress?(keyCode, isRepeat) ?? false
-        case .search:
-            return onSearchKeyPress?(key, keyCode, isRepeat) ?? false
-        case .mouse:
-            return onMouseKeyPress?(key, keyCode, isRepeat, modifiers) ?? false
-        }
+        guard let mode = modes[currentMode] else { return false }
+        return mode.handleKeyPress(key, keyCode: keyCode, isRepeat: isRepeat, modifiers: modifiers)
     }
 }

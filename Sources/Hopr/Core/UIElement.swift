@@ -49,9 +49,6 @@ struct UIElement: Identifiable {
     func performAction(_ action: ClickAction = .click) {
         // Always warp the mouse cursor to the element first
         moveCursorTo()
-        
-        // Wait a brief moment for OS/app to register cursor position
-        Thread.sleep(forTimeInterval: 0.05)
 
         switch action {
         case .click:
@@ -131,7 +128,7 @@ struct UIElement: Identifiable {
     private func moveCursorTo() {
         let point = centerPoint
         CGWarpMouseCursorPosition(point)
-        
+
         // Post a mouse-moved event slightly offset, then another at the exact target location.
         // This transition delta (1 pixel) forces browsers (Chrome/Safari) and other macOS apps
         // to register a real mouse move transition and trigger CSS :hover and JS mouseover/mouseenter events.
@@ -140,9 +137,7 @@ struct UIElement: Identifiable {
                                     mouseCursorPosition: offsetPoint, mouseButton: .left) {
             moveOffset.post(tap: .cghidEventTap)
         }
-        
-        Thread.sleep(forTimeInterval: 0.01)
-        
+
         if let moveTarget = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved,
                                     mouseCursorPosition: point, mouseButton: .left) {
             moveTarget.post(tap: .cghidEventTap)
@@ -265,7 +260,7 @@ private func getPointAttribute(_ element: AXUIElement, _ attribute: String) -> C
     guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else { return nil }
 
     var point = CGPoint.zero
-    guard AXValueGetValue(value as! AXValue, .cgPoint, &point) else { return nil }
+    guard AXValueGetValue(unsafeBitCast(value, to: AXValue.self), .cgPoint, &point) else { return nil }
     return point
 }
 
@@ -274,7 +269,7 @@ private func getSizeAttribute(_ element: AXUIElement, _ attribute: String) -> CG
     guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else { return nil }
 
     var size = CGSize.zero
-    guard AXValueGetValue(value as! AXValue, .cgSize, &size) else { return nil }
+    guard AXValueGetValue(unsafeBitCast(value, to: AXValue.self), .cgSize, &size) else { return nil }
     return size
 }
 
@@ -314,8 +309,9 @@ private func getChildren(_ element: AXUIElement) -> [AXUIElement] {
 private func findTitleInChildren(_ element: AXUIElement) -> String? {
     // 1. Try Title UI Element associated label on root first
     var titleUIElementRef: CFTypeRef?
-    if AXUIElementCopyAttributeValue(element, kAXTitleUIElementAttribute as CFString, &titleUIElementRef) == .success {
-        let labelElem = titleUIElementRef as! AXUIElement
+    if AXUIElementCopyAttributeValue(element, kAXTitleUIElementAttribute as CFString, &titleUIElementRef) == .success,
+       let titleRef = titleUIElementRef {
+        let labelElem = unsafeBitCast(titleRef, to: AXUIElement.self)
         var title = getStringAttribute(labelElem, kAXTitleAttribute) ?? ""
         if title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             title = getStringAttribute(labelElem, kAXValueAttribute) ?? ""
@@ -348,8 +344,9 @@ private func findTitleInChildren(_ element: AXUIElement) -> String? {
         if current.element != element {
             // Try Title UI Element on descendant
             var childTitleRef: CFTypeRef?
-            if AXUIElementCopyAttributeValue(current.element, kAXTitleUIElementAttribute as CFString, &childTitleRef) == .success {
-                let labelElem = childTitleRef as! AXUIElement
+            if AXUIElementCopyAttributeValue(current.element, kAXTitleUIElementAttribute as CFString, &childTitleRef) == .success,
+               let titleRef = childTitleRef {
+                let labelElem = unsafeBitCast(titleRef, to: AXUIElement.self)
                 var title = getStringAttribute(labelElem, kAXTitleAttribute) ?? ""
                 if title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     title = getStringAttribute(labelElem, kAXValueAttribute) ?? ""

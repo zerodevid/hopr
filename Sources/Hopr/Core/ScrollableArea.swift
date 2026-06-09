@@ -33,16 +33,18 @@ struct ScrollableArea: Identifiable {
 
 private func getPointAttribute(_ element: AXUIElement, _ attribute: String) -> CGPoint? {
     var value: CFTypeRef?
-    guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else { return nil }
+    guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success,
+          let ref = value else { return nil }
     var point = CGPoint.zero
-    guard AXValueGetValue(value as! AXValue, .cgPoint, &point) else { return nil }
+    guard AXValueGetValue(unsafeBitCast(ref, to: AXValue.self), .cgPoint, &point) else { return nil }
     return point
 }
 
 private func getSizeAttribute(_ element: AXUIElement, _ attribute: String) -> CGSize? {
     var value: CFTypeRef?
-    guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else { return nil }
+    guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success,
+          let ref = value else { return nil }
     var size = CGSize.zero
-    guard AXValueGetValue(value as! AXValue, .cgSize, &size) else { return nil }
+    guard AXValueGetValue(unsafeBitCast(ref, to: AXValue.self), .cgSize, &size) else { return nil }
     return size
 }

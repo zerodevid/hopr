@@ -242,32 +242,13 @@ final class HotkeyManager {
     }
 
     private func isScreenCaptureActive() -> Bool {
-        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0]
-        var size = 0
-        
-        // Get buffer size
-        sysctl(&mib, 4, nil, &size, nil, 0)
-        guard size > 0 else { return false }
-        
-        // Allocate buffer
-        let count = size / MemoryLayout<kinfo_proc>.stride
-        var procList = [kinfo_proc](repeating: kinfo_proc(), count: count)
-        
-        // Get process list
-        let result = sysctl(&mib, 4, &procList, &size, nil, 0)
-        guard result == 0 else { return false }
-        
-        let targetNames = ["screencapture", "screencaptureui"]
-        
-        for proc in procList {
-            let comm = withUnsafeBytes(of: proc.kp_proc.p_comm) { ptr in
-                String(cString: ptr.bindMemory(to: CChar.self).baseAddress!)
-            }
-            if targetNames.contains(where: { comm.lowercased().contains($0) }) {
-                return true
-            }
+        let targetBundleIDs: Set<String> = [
+            "com.apple.screencapture",
+            "com.apple.screencaptureui"
+        ]
+        return NSWorkspace.shared.runningApplications.contains { app in
+            guard let bundleID = app.bundleIdentifier else { return false }
+            return targetBundleIDs.contains(bundleID)
         }
-        
-        return false
     }
 }

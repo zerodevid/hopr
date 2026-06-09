@@ -1,7 +1,7 @@
 import Cocoa
 import Carbon.HIToolbox
 
-final class MouseMode {
+final class MouseMode: Mode {
     private var mouseTimer: Timer?
     private var pressedKeys = Set<UInt16>()
     private var velocity = CGPoint.zero
@@ -66,7 +66,7 @@ final class MouseMode {
         Log.info("Mouse mode deactivated")
     }
 
-    func handleKeyPress(key: String, keyCode: UInt16, isRepeat: Bool, modifiers: KeyModifiers) -> Bool {
+    func handleKeyPress(_ key: String, keyCode: UInt16, isRepeat: Bool, modifiers: KeyModifiers) -> Bool {
         guard isActive else { return false }
 
         let movementKeys: Set<UInt16> = [keyW, keyA, keyS, keyD]
@@ -130,7 +130,7 @@ final class MouseMode {
         return false
     }
 
-    func handleKeyUp(keyCode: UInt16) {
+    func handleKeyUp(_ key: String, keyCode: UInt16) {
         pressedKeys.remove(keyCode)
 
         // Left Click release (Q)

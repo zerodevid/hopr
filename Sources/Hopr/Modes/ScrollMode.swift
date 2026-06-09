@@ -1,7 +1,7 @@
 import Cocoa
 import Carbon.HIToolbox
 
-final class ScrollMode {
+final class ScrollMode: Mode {
 
     private let overlayController = OverlayWindowController()
     private var scrollAreas: [ScrollableArea] = []
@@ -57,7 +57,7 @@ final class ScrollMode {
         Log.info("Scroll mode deactivated")
     }
 
-    func handleKeyPress(keyCode: UInt16, isRepeat: Bool) -> Bool {
+    func handleKeyPress(_ key: String, keyCode: UInt16, isRepeat: Bool, modifiers: KeyModifiers) -> Bool {
         switch phase {
         case .selecting:
             let validSelectKeys: Set<UInt16> = [
@@ -111,7 +111,7 @@ final class ScrollMode {
         }
     }
 
-    func handleKeyUp(keyCode: UInt16) {
+    func handleKeyUp(_ key: String, keyCode: UInt16) {
         pressedKeys.remove(keyCode)
     }
 

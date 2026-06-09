@@ -1,7 +1,7 @@
 import Cocoa
 import Carbon.HIToolbox
 
-final class SearchMode: NSObject, NSTextFieldDelegate {
+final class SearchMode: NSObject, NSTextFieldDelegate, Mode {
 
     private let overlayController = OverlayWindowController()
     private var searchPanel: NSPanel?
@@ -133,8 +133,12 @@ final class SearchMode: NSObject, NSTextFieldDelegate {
         }
     }
 
+    func handleKeyUp(_ key: String, keyCode: UInt16) {
+        // Search mode doesn't need key-up handling
+    }
+
     /// Handle key press in search mode. Returns true if key was consumed.
-    func handleKeyPress(_ key: String, keyCode: UInt16, isRepeat: Bool) -> Bool {
+    func handleKeyPress(_ key: String, keyCode: UInt16, isRepeat: Bool, modifiers: KeyModifiers) -> Bool {
         // Enter → activate selected element
         if keyCode == kVK_Return {
             if !filteredElements.isEmpty {

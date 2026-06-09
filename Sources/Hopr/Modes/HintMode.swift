@@ -1,6 +1,6 @@
 import Cocoa
 
-final class HintMode {
+final class HintMode: Mode {
 
     private let overlayController = OverlayWindowController()
     private var allElements: [UIElement] = []

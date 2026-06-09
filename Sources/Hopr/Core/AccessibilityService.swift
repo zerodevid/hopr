@@ -72,6 +72,24 @@ final class AccessibilityService {
 
     private init() {}
 
+    // MARK: - AX Value Helpers
+
+    /// Extract CGPoint from a CFTypeRef returned by AXUIElementCopyAttributeValue.
+    private func axPointValue(_ ref: CFTypeRef?) -> CGPoint? {
+        guard let ref else { return nil }
+        var point = CGPoint.zero
+        guard AXValueGetValue(unsafeBitCast(ref, to: AXValue.self), .cgPoint, &point) else { return nil }
+        return point
+    }
+
+    /// Extract CGSize from a CFTypeRef returned by AXUIElementCopyAttributeValue.
+    private func axSizeValue(_ ref: CFTypeRef?) -> CGSize? {
+        guard let ref else { return nil }
+        var size = CGSize.zero
+        guard AXValueGetValue(unsafeBitCast(ref, to: AXValue.self), .cgSize, &size) else { return nil }
+        return size
+    }
+
     private func isElectronApp(_ app: NSRunningApplication) -> Bool {
         if let bundle = app.bundleIdentifier {
             return electronBundlePrefixes.contains(where: { bundle.hasPrefix($0) })
@@ -264,8 +282,8 @@ final class AccessibilityService {
                 var sizeRef: CFTypeRef?
                 AXUIElementCopyAttributeValue(webArea, kAXPositionAttribute as CFString, &posRef)
                 AXUIElementCopyAttributeValue(webArea, kAXSizeAttribute as CFString, &sizeRef)
-                if let p = posRef { AXValueGetValue(p as! AXValue, .cgPoint, &webAreaFrame.origin) }
-                if let s = sizeRef { AXValueGetValue(s as! AXValue, .cgSize, &webAreaFrame.size) }
+                if let p = axPointValue(posRef) { webAreaFrame.origin = p }
+                if let s = axSizeValue(sizeRef) { webAreaFrame.size = s }
                 
                 guard webAreaFrame.width > 50 && webAreaFrame.height > 50 else { continue }
                 
@@ -537,7 +555,7 @@ final class AccessibilityService {
                     var size = CGSize.zero
                     var sizeRef: CFTypeRef?
                     if AXUIElementCopyAttributeValue(window, kAXSizeAttribute as CFString, &sizeRef) == .success {
-                        AXValueGetValue(sizeRef as! AXValue, .cgSize, &size)
+                        if let s = axSizeValue(sizeRef) { size = s }
                     }
                     if size.width > 5 && size.height > 5 {
                         var elements: [UIElement] = []
@@ -649,8 +667,9 @@ final class AccessibilityService {
 
     private func getFocusedWindow(from appElement: AXUIElement) -> AXUIElement? {
         var windowRef: CFTypeRef?
-        if AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &windowRef) == .success {
-            return windowRef as! AXUIElement
+        if AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &windowRef) == .success,
+           let ref = windowRef {
+            return unsafeBitCast(ref, to: AXUIElement.self)
         }
         // Fallback: get first window
         var windowsRef: CFTypeRef?
@@ -672,18 +691,20 @@ final class AccessibilityService {
 
     private func getMenuBar(from appElement: AXUIElement) -> AXUIElement? {
         var menuBarRef: CFTypeRef?
-        if AXUIElementCopyAttributeValue(appElement, kAXMenuBarAttribute as CFString, &menuBarRef) == .success {
-            return menuBarRef as! AXUIElement
+        if AXUIElementCopyAttributeValue(appElement, kAXMenuBarAttribute as CFString, &menuBarRef) == .success,
+           let ref = menuBarRef {
+            return unsafeBitCast(ref, to: AXUIElement.self)
         }
         return nil
     }
 
-    private func traverse(element: AXUIElement, depth: Int, parentRowId: UUID?, inListOrRow: Bool, elements: inout [UIElement]) {
+    private func traverse(element: AXUIElement, depth: Int, parentRowId: UUID?, inListOrRow: Bool, elements: inout [UIElement], skipWebAreas: Bool = false) {
         // Electron apps have very deep trees (often over 30 levels) — need enough depth to reach all elements
         guard depth < 45 else { return }
 
         var currentParentRowId = parentRowId
         var nextInListOrRow = inListOrRow
+        var isWebArea = false
         if var uiElement = UIElement.from(element) {
             uiElement.parentRowId = parentRowId
             if uiElement.role == "AXRow" || uiElement.role == "AXOutlineRow" {
@@ -691,10 +712,20 @@ final class AccessibilityService {
                 nextInListOrRow = true
             } else if uiElement.role == "AXList" || uiElement.role == "AXTable" || uiElement.role == "AXOutline" {
                 nextInListOrRow = true
+            } else if uiElement.role == "AXWebArea" || uiElement.role == "AXWebDocument" {
+                isWebArea = true
             }
-            if shouldInclude(uiElement, element, inListOrRow: inListOrRow) {
-                elements.append(uiElement)
+
+            if !(skipWebAreas && isWebArea) {
+                if shouldInclude(uiElement, element, inListOrRow: inListOrRow) {
+                    elements.append(uiElement)
+                }
             }
+        }
+
+        // When skipping web areas, don't recurse into their children
+        if skipWebAreas && isWebArea {
+            return
         }
 
         var children: [AXUIElement] = []
@@ -725,80 +756,24 @@ final class AccessibilityService {
         }
 
         for child in uniqueChildren {
-            traverse(element: child, depth: depth + 1, parentRowId: currentParentRowId, inListOrRow: nextInListOrRow, elements: &elements)
+            traverse(element: child, depth: depth + 1, parentRowId: currentParentRowId, inListOrRow: nextInListOrRow, elements: &elements, skipWebAreas: skipWebAreas)
         }
     }
 
     private func getNativeWindowElements(from appElement: AXUIElement) -> [UIElement] {
         var elements: [UIElement] = []
-        
+
         var targetWindows: [AXUIElement] = []
         if let frontWindow = getFrontmostWindow(from: appElement) {
             targetWindows = [frontWindow]
         } else if let windows = getAllWindows(from: appElement) {
             targetWindows = windows
         }
-        
+
         for window in targetWindows {
-            traverseNativeOnly(element: window, depth: 0, parentRowId: nil, inListOrRow: false, elements: &elements)
+            traverse(element: window, depth: 0, parentRowId: nil, inListOrRow: false, elements: &elements, skipWebAreas: true)
         }
         return elements
-    }
-
-    private func traverseNativeOnly(element: AXUIElement, depth: Int, parentRowId: UUID?, inListOrRow: Bool, elements: inout [UIElement]) {
-        guard depth < 45 else { return }
-
-        var currentParentRowId = parentRowId
-        var nextInListOrRow = inListOrRow
-        
-        var isWebArea = false
-        if var uiElement = UIElement.from(element) {
-            uiElement.parentRowId = parentRowId
-            if uiElement.role == "AXRow" || uiElement.role == "AXOutlineRow" {
-                currentParentRowId = uiElement.id
-                nextInListOrRow = true
-            } else if uiElement.role == "AXList" || uiElement.role == "AXTable" || uiElement.role == "AXOutline" {
-                nextInListOrRow = true
-            } else if uiElement.role == "AXWebArea" || uiElement.role == "AXWebDocument" {
-                isWebArea = true
-            }
-            
-            if !isWebArea {
-                if shouldInclude(uiElement, element, inListOrRow: inListOrRow) {
-                    elements.append(uiElement)
-                }
-            }
-        }
-
-        if isWebArea {
-            return
-        }
-
-        var children: [AXUIElement] = []
-        var navRef: CFTypeRef?
-        if AXUIElementCopyAttributeValue(element, "AXChildrenInNavigationOrder" as CFString, &navRef) == .success,
-           let navChildren = navRef as? [AXUIElement] {
-            children.append(contentsOf: navChildren)
-        }
-        var normalRef: CFTypeRef?
-        if AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &normalRef) == .success,
-           let normalChildren = normalRef as? [AXUIElement] {
-            children.append(contentsOf: normalChildren)
-        }
-
-        var uniqueChildren: [AXUIElement] = []
-        var seenHashes = Set<CFHashCode>()
-        for child in children {
-            let hash = CFHash(child)
-            if !seenHashes.contains(hash) {
-                seenHashes.insert(hash)
-                uniqueChildren.append(child)
-            }
-        }
-
-        for child in uniqueChildren {
-            traverseNativeOnly(element: child, depth: depth + 1, parentRowId: currentParentRowId, inListOrRow: nextInListOrRow, elements: &elements)
-        }
     }
 
     private func findWebAreas(in element: AXUIElement, depth: Int = 0) -> [AXUIElement] {
@@ -987,10 +962,11 @@ final class AccessibilityService {
         let appElement = AXUIElementCreateApplication(frontApp.processIdentifier)
 
         var focused: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &focused) == .success else {
+        guard AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &focused) == .success,
+              let ref = focused else {
             return nil
         }
-        return focused as! AXUIElement?
+        return unsafeBitCast(ref, to: AXUIElement.self)
     }
 
     func getScrollArea() -> AXUIElement? {
@@ -1033,8 +1009,8 @@ final class AccessibilityService {
             var sizeRef: CFTypeRef?
             AXUIElementCopyAttributeValue(window, kAXPositionAttribute as CFString, &posRef)
             AXUIElementCopyAttributeValue(window, kAXSizeAttribute as CFString, &sizeRef)
-            if let p = posRef { AXValueGetValue(p as! AXValue, .cgPoint, &windowFrame.origin) }
-            if let s = sizeRef { AXValueGetValue(s as! AXValue, .cgSize, &windowFrame.size) }
+            if let p = axPointValue(posRef) { windowFrame.origin = p }
+            if let s = axSizeValue(sizeRef) { windowFrame.size = s }
 
             guard windowFrame.width > 100, windowFrame.height > 100 else { continue }
 
@@ -1073,16 +1049,12 @@ final class AccessibilityService {
         var roleRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRef) == .success,
               let role = roleRef as? String else { return false }
-              
-        var posRef: CFTypeRef?
+
         var sizeRef: CFTypeRef?
-        AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &posRef)
         AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &sizeRef)
-        var point = CGPoint.zero
         var size = CGSize.zero
-        if let p = posRef { AXValueGetValue(p as! AXValue, .cgPoint, &point) }
-        if let s = sizeRef { AXValueGetValue(s as! AXValue, .cgSize, &size) }
-        
+        if let s = axSizeValue(sizeRef) { size = s }
+
         let panelRoles: Set<String> = ["AXGroup", "AXScrollArea", "AXTextArea", "AXWebArea", "AXList", "AXTable", "AXOutline"]
         return panelRoles.contains(role)
             && size.width > 80 && size.height > 80
@@ -1107,8 +1079,8 @@ final class AccessibilityService {
         AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &sizeRef)
         var point = CGPoint.zero
         var size = CGSize.zero
-        if let p = posRef { AXValueGetValue(p as! AXValue, .cgPoint, &point) }
-        if let s = sizeRef { AXValueGetValue(s as! AXValue, .cgSize, &size) }
+        if let p = axPointValue(posRef) { point = p }
+        if let s = axSizeValue(sizeRef) { size = s }
         let frame = CGRect(origin: point, size: size)
 
         let isPanel = isPanelElement(element, windowFrame: windowFrame)
@@ -1127,7 +1099,7 @@ final class AccessibilityService {
                     var childSizeRef: CFTypeRef?
                     AXUIElementCopyAttributeValue(child, kAXSizeAttribute as CFString, &childSizeRef)
                     var childSize = CGSize.zero
-                    if let s = childSizeRef { AXValueGetValue(s as! AXValue, .cgSize, &childSize) }
+                    if let s = axSizeValue(childSizeRef) { childSize = s }
                     childPanels.append((child, childSize))
                 }
             }
@@ -1161,8 +1133,8 @@ final class AccessibilityService {
     private func getFrontmostWindow(from appElement: AXUIElement) -> AXUIElement? {
         var windowRef: CFTypeRef?
         if AXUIElementCopyAttributeValue(appElement, "AXFrontmostWindow" as CFString, &windowRef) == .success,
-           let window = windowRef {
-            return (window as! AXUIElement)
+           let ref = windowRef {
+            return unsafeBitCast(ref, to: AXUIElement.self)
         }
         // Fallback to focused window
         return getFocusedWindow(from: appElement)
@@ -1186,7 +1158,6 @@ final class AccessibilityService {
     private func findScrollAreas(in element: AXUIElement, depth: Int, results: inout [ScrollableArea]) {
         guard depth < 15 else { return }
 
-        var roleRef: CFTypeRef?
         let role: String? = {
             var ref: CFTypeRef?
             guard AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &ref) == .success else { return nil }
@@ -1294,8 +1265,8 @@ final class AccessibilityService {
         AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &sizeRef)
         var point = CGPoint.zero
         var size = CGSize.zero
-        if let p = posRef { AXValueGetValue(p as! AXValue, .cgPoint, &point) }
-        if let s = sizeRef { AXValueGetValue(s as! AXValue, .cgSize, &size) }
+        if let p = axPointValue(posRef) { point = p }
+        if let s = axSizeValue(sizeRef) { size = s }
         let frame = CGRect(origin: point, size: size)
 
         let isWebScrollCandidate = (role == "AXGroup" || role == "AXScrollArea" || role == "AXList" || role == "AXTable" || role == "AXOutline" || role == "AXTextArea")

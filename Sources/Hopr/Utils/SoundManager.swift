@@ -31,20 +31,22 @@ final class SoundManager {
 
     private func playSound(named name: String, volume: Float) {
         let fm = FileManager.default
-        
-        // Try current working directory first
+
+        // Try current working directory first (development builds)
         let localPath = fm.currentDirectoryPath + "/Resources/\(name)"
         if fm.fileExists(atPath: localPath), let sound = NSSound(contentsOfFile: localPath, byReference: true) {
             sound.volume = volume
             sound.play()
             return
         }
-        
-        // Fallback to absolute workspace path
-        let absolutePath = "/Users/macbook/Documents/Project/clone_hopr/Resources/\(name)"
-        if let sound = NSSound(contentsOfFile: absolutePath, byReference: true) {
-            sound.volume = volume
-            sound.play()
+
+        // Fallback to Bundle resource path
+        if let resourcePath = Bundle.main.resourcePath {
+            let bundlePath = (resourcePath as NSString).appendingPathComponent(name)
+            if let sound = NSSound(contentsOfFile: bundlePath, byReference: true) {
+                sound.volume = volume
+                sound.play()
+            }
         }
     }
 }

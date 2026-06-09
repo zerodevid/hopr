@@ -114,6 +114,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func handleAppActivation(_ notification: Notification) {
+        if let app = notification.object as? NSRunningApplication {
+            let bundleID = app.bundleIdentifier
+            let isIgnored = AppSettings.shared.isAppIgnored(bundleID) ||
+                            bundleID == Bundle.main.bundleIdentifier ||
+                            bundleID == "com.timpler.screenstudio" ||
+                            app.activationPolicy == .accessory
+            
+            if isIgnored {
+                // Do not deactivate current mode for ignored, self, Screen Studio, or accessory apps
+                if modeController.currentMode == .idle {
+                    hintMode.prefetch(for: app)
+                }
+                return
+            }
+        }
+
         // When user switches to a new app, pre-scan its UI elements in background
         // so hint mode can show labels instantly
         if modeController.currentMode != .idle && modeController.currentMode != .mouse {
@@ -214,20 +230,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func setupModes() {
+        modeController.registerMode(hintMode, for: .hint)
+        modeController.registerMode(scrollMode, for: .scroll)
+        modeController.registerMode(searchMode, for: .search)
+        modeController.registerMode(mouseMode, for: .mouse)
+
         modeController.onModeChange = { [weak self] mode in
             self?.handleModeChange(mode)
-        }
-        modeController.onHintKeyPress = { [weak self] key, keyCode, isRepeat, modifiers in
-            self?.hintMode.handleKeyPress(key, keyCode: keyCode, isRepeat: isRepeat, modifiers: modifiers) ?? false
-        }
-        modeController.onHintKeyUp = { [weak self] key, keyCode in
-            self?.hintMode.handleKeyUp(key, keyCode: keyCode)
-        }
-        modeController.onHintShiftKeyChanged = { [weak self] isPressed in
-            self?.hintMode.handleShiftKeyChanged(isPressed: isPressed)
-        }
-        modeController.onHintFnKeyChanged = { [weak self] isPressed in
-            self?.hintMode.handleFnKeyChanged(isPressed: isPressed)
         }
         hintMode.onVisibilityChange = { [weak self] visible in
             if visible {
@@ -235,21 +244,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             } else {
                 self?.modeIndicator.hide()
             }
-        }
-        modeController.onScrollKeyPress = { [weak self] keyCode, isRepeat in
-            self?.scrollMode.handleKeyPress(keyCode: keyCode, isRepeat: isRepeat) ?? false
-        }
-        modeController.onScrollKeyUp = { [weak self] keyCode in
-            self?.scrollMode.handleKeyUp(keyCode: keyCode)
-        }
-        modeController.onSearchKeyPress = { [weak self] key, keyCode, isRepeat in
-            self?.searchMode.handleKeyPress(key, keyCode: keyCode, isRepeat: isRepeat) ?? false
-        }
-        modeController.onMouseKeyPress = { [weak self] key, keyCode, isRepeat, modifiers in
-            self?.mouseMode.handleKeyPress(key: key, keyCode: keyCode, isRepeat: isRepeat, modifiers: modifiers) ?? false
-        }
-        modeController.onMouseKeyUp = { [weak self] keyCode in
-            self?.mouseMode.handleKeyUp(keyCode: keyCode)
         }
     }
 
@@ -352,15 +346,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applyDockIcon() {
         let fm = FileManager.default
         let localPath = fm.currentDirectoryPath + "/Resources/icon.png"
-        let absolutePath = "/Users/macbook/Documents/Project/clone_hopr/Resources/icon.png"
-        
+        let bundlePath = Bundle.main.resourcePath.map { ($0 as NSString).appendingPathComponent("icon.png") }
+
         var iconImage: NSImage? = nil
         if fm.fileExists(atPath: localPath) {
             iconImage = NSImage(contentsOfFile: localPath)
-        } else if fm.fileExists(atPath: absolutePath) {
-            iconImage = NSImage(contentsOfFile: absolutePath)
+        } else if let bundlePath, fm.fileExists(atPath: bundlePath) {
+            iconImage = NSImage(contentsOfFile: bundlePath)
         }
-        
+
         if let icon = iconImage {
             NSApplication.shared.applicationIconImage = resizeAndPadIcon(icon, scaleFactor: 0.80)
         }
