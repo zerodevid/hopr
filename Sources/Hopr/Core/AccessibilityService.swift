@@ -1102,6 +1102,23 @@ final class AccessibilityService {
 
         let result = deduplicateScrollAreas(allAreas)
         Log.debug("getAllScrollAreas: \(targetWindows.count) windows scanned, \(allAreas.count) raw areas → \(result.count) after dedup")
+
+        // Debug: log each area
+        for (i, area) in allAreas.enumerated() {
+            var roleRef: CFTypeRef?
+            AXUIElementCopyAttributeValue(area.element, kAXRoleAttribute as CFString, &roleRef)
+            let role = roleRef as? String ?? "unknown"
+            Log.debug("  Area[\(i)]: \(role) frame=\(Int(area.frame.width))×\(Int(area.frame.height)) @ (\(Int(area.frame.origin.x)),\(Int(area.frame.origin.y)))")
+        }
+
+        Log.debug("After dedup → \(result.count) areas:")
+        for (i, area) in result.enumerated() {
+            var roleRef: CFTypeRef?
+            AXUIElementCopyAttributeValue(area.element, kAXRoleAttribute as CFString, &roleRef)
+            let role = roleRef as? String ?? "unknown"
+            Log.debug("  Result[\(i)]: \(role) frame=\(Int(area.frame.width))×\(Int(area.frame.height)) @ (\(Int(area.frame.origin.x)),\(Int(area.frame.origin.y)))")
+        }
+
         return result
     }
 
@@ -1123,55 +1140,67 @@ final class AccessibilityService {
         let panelRoles: Set<String> = ["AXGroup", "AXScrollArea", "AXTextArea", "AXWebArea", "AXList", "AXTable", "AXOutline"]
 
         // Check if it's a recognized panel role and has reasonable size
-        guard panelRoles.contains(role) && size.width > 60 && size.height > 60 else { return false }
+        guard panelRoles.contains(role) && size.width > 60 && size.height > 60 else {
+            Log.debug("    isPanelElement(\(role)): FAIL - role not in \(panelRoles) or size too small (\(Int(size.width))×\(Int(size.height)))")
+            return false
+        }
 
         // Allow panels that are smaller than the window (sidebar, bottom panels, etc)
-        // Sidebar: narrow but tall (e.g., 250px wide, 600px tall)
-        // Terminal: wide but short (e.g., 1200px wide, 200px tall)
-        // Main editor: fills most of window
         let widthRatio = size.width / max(windowFrame.width, 1)
         let heightRatio = size.height / max(windowFrame.height, 1)
 
-        // Accept if it's clearly a side/bottom panel (one dimension small, other large)
-        // OR if it's the main area (both dimensions substantial)
-        return (widthRatio < 0.4 && heightRatio > 0.5)  // Sidebar: narrow, tall
-            || (widthRatio > 0.5 && heightRatio < 0.4)  // Bottom panel: wide, short
-            || (widthRatio > 0.5 && heightRatio > 0.5)  // Main area: large both directions
+        let isSidebar = widthRatio < 0.4 && heightRatio > 0.5
+        let isBottomPanel = widthRatio > 0.5 && heightRatio < 0.4
+        let isMainArea = widthRatio > 0.5 && heightRatio > 0.5
+
+        let result = isSidebar || isBottomPanel || isMainArea
+        if result {
+            let type = isSidebar ? "SIDEBAR" : (isBottomPanel ? "BOTTOM" : "MAIN")
+            Log.debug("    isPanelElement(\(role)): YES (\(type)) w=\(String(format: "%.1f", widthRatio))% h=\(String(format: "%.1f", heightRatio * 100))%")
+        } else {
+            Log.debug("    isPanelElement(\(role)): NO - ratios w=\(String(format: "%.1f", widthRatio * 100))% h=\(String(format: "%.1f", heightRatio * 100))%")
+        }
+        return result
     }
 
     /// Check if element is likely scrollable using multiple indicators
     private func isScrollablePanel(_ element: AXUIElement) -> Bool {
+        var roleRef: CFTypeRef?
+        AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRef)
+        let role = roleRef as? String ?? "unknown"
+
         // Check explicit scroll bars first (most reliable)
         var verticalRef: CFTypeRef?
         var horizontalRef: CFTypeRef?
         AXUIElementCopyAttributeValue(element, kAXVerticalScrollBarAttribute as CFString, &verticalRef)
         AXUIElementCopyAttributeValue(element, kAXHorizontalScrollBarAttribute as CFString, &horizontalRef)
         if verticalRef != nil || horizontalRef != nil {
+            Log.debug("      isScrollable(\(role)): YES - has scroll bar")
             return true
         }
 
         // Check for AXHasScrollBar attribute (VSCode uses this)
         var hasScrollRef: CFTypeRef?
         if AXUIElementCopyAttributeValue(element, "AXHasScrollBar" as CFString, &hasScrollRef) == .success {
+            Log.debug("      isScrollable(\(role)): YES - AXHasScrollBar")
             return true
         }
 
         // Check role - some roles are inherently scrollable
-        var roleRef: CFTypeRef?
-        if AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRef) == .success,
-           let role = roleRef as? String {
-            let scrollableRoles: Set<String> = ["AXScrollArea", "AXWebArea", "AXWebDocument", "AXList", "AXTable", "AXOutline"]
-            if scrollableRoles.contains(role) {
-                return true
-            }
+        let scrollableRoles: Set<String> = ["AXScrollArea", "AXWebArea", "AXWebDocument", "AXList", "AXTable", "AXOutline"]
+        if scrollableRoles.contains(role) {
+            Log.debug("      isScrollable(\(role)): YES - inherent role")
+            return true
         }
 
         // Last resort: check if has content that could be scrolled (AXValue)
         var valueRef: CFTypeRef?
         if AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &valueRef) == .success {
+            Log.debug("      isScrollable(\(role)): YES - has AXValue")
             return valueRef != nil
         }
 
+        Log.debug("      isScrollable(\(role)): NO")
         return false
     }
 
