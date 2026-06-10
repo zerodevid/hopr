@@ -1169,7 +1169,19 @@ final class AccessibilityService {
         AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRef)
         let role = roleRef as? String ?? "unknown"
 
-        // Check explicit scroll bars first (most reliable)
+        // Check role FIRST - some roles are inherently scrollable/are common panel types
+        // AXGroup is used for VSCode panels (sidebar, editor, terminal)
+        // AXOutline for tree views (GRAPH panel)
+        // etc.
+        let inherentlyScrollableRoles: Set<String> = ["AXScrollArea", "AXWebArea", "AXWebDocument", "AXList", "AXTable", "AXOutline"]
+        let panelRoles: Set<String> = ["AXGroup"]  // AXGroup panels are typically scrollable in VSCode
+
+        if inherentlyScrollableRoles.contains(role) {
+            Log.debug("      isScrollable(\(role)): YES - inherent scrollable role")
+            return true
+        }
+
+        // Check explicit scroll bars (most reliable for detecting actual scrollability)
         var verticalRef: CFTypeRef?
         var horizontalRef: CFTypeRef?
         AXUIElementCopyAttributeValue(element, kAXVerticalScrollBarAttribute as CFString, &verticalRef)
@@ -1186,10 +1198,9 @@ final class AccessibilityService {
             return true
         }
 
-        // Check role - some roles are inherently scrollable
-        let scrollableRoles: Set<String> = ["AXScrollArea", "AXWebArea", "AXWebDocument", "AXList", "AXTable", "AXOutline"]
-        if scrollableRoles.contains(role) {
-            Log.debug("      isScrollable(\(role)): YES - inherent role")
+        // For panel roles (AXGroup), be more lenient - assume scrollable if it looks like a panel
+        if panelRoles.contains(role) {
+            Log.debug("      isScrollable(\(role)): YES - panel role (assume scrollable)")
             return true
         }
 
@@ -1248,13 +1259,17 @@ final class AccessibilityService {
             }
             
             if childPanels.count >= 2 {
-                // Layout container: recurse into children
+                // Layout container with multiple panels (e.g., VSCode main window)
+                // Recurse to find individual panels
+                Log.debug("    Panel with \(childPanels.count) children - recursing")
             } else if childPanels.count == 1 {
                 let childSize = childPanels[0].1
                 if childSize.width >= size.width * 0.95 && childSize.height >= size.height * 0.95 {
-                    // Wrapper panel: recurse into children
+                    // Wrapper panel: recurse into single child
+                    Log.debug("    Single wrapper child - recursing")
                 } else {
-                    // Leaf panel: add if scrollable (check multiple indicators)
+                    // Leaf panel with one child: add it if it looks scrollable
+                    Log.debug("    Leaf panel with 1 child size=\(Int(childSize.width))×\(Int(childSize.height))")
                     if isScrollablePanel(element) {
                         let area = ScrollableArea(element: element, frame: frame)
                         results.append(area)
@@ -1262,7 +1277,9 @@ final class AccessibilityService {
                     }
                 }
             } else {
-                // Leaf panel: add if scrollable (check multiple indicators)
+                // No child panels found - this could be a leaf scrollable panel itself
+                // (e.g., sidebar outline, terminal, editor content area)
+                Log.debug("    No child panels - checking if self is scrollable")
                 if isScrollablePanel(element) {
                     let area = ScrollableArea(element: element, frame: frame)
                     results.append(area)
