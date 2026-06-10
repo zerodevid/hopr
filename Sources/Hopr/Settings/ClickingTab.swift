@@ -13,15 +13,23 @@ struct ClickingTab: View {
                         get: { settings.hintShortcut },
                         set: { settings.hintShortcut = $0 }
                     ))
+                    .accessibilityIdentifier("hint-shortcut-recorder")
+                    .accessibilityLabel("Hint Mode activation shortcut")
                 }
                 ToggleRow("Auto-click on Single Match",
                           subtitle: "Immediately click when only one element matches",
                           isLast: false,
                           value: $settings.autoClick)
+                .accessibilityIdentifier("auto-click-toggle")
+                .accessibilityLabel("Auto-click on Single Match")
+                .accessibilityHint("When enabled, automatically clicks if only one element matches the search")
                 ToggleRow("Chain Clicks",
                           subtitle: "Stay in hint mode after clicking",
                           isLast: true,
                           value: $settings.chainClicks)
+                .accessibilityIdentifier("chain-clicks-toggle")
+                .accessibilityLabel("Chain Clicks")
+                .accessibilityHint("When enabled, hint mode remains active after clicking an element")
             }
 
             // MARK: - Labels
@@ -31,6 +39,9 @@ struct ClickingTab: View {
                         .textFieldStyle(.roundedBorder)
                         .font(.system(size: 12, design: .monospaced))
                         .frame(width: 180)
+                        .accessibilityIdentifier("label-characters-input")
+                        .accessibilityLabel("Label characters")
+                        .accessibilityHint("Enter characters used to create hint labels (e.g., ABCDEFGHIJKLMNOPQRSTUVWXYZ)")
                 }
             }
 
@@ -41,11 +52,16 @@ struct ClickingTab: View {
                         get: { settings.searchShortcut },
                         set: { settings.searchShortcut = $0 }
                     ))
+                    .accessibilityIdentifier("search-shortcut-recorder")
+                    .accessibilityLabel("Search mode activation shortcut")
                 }
                 ToggleRow("Hide Labels Before Search",
                           subtitle: "Show labels only after typing begins",
                           isLast: true,
                           value: $settings.hideLabelsBeforeSearch)
+                .accessibilityIdentifier("hide-labels-toggle")
+                .accessibilityLabel("Hide Labels Before Search")
+                .accessibilityHint("When enabled, element labels appear only after you start typing in search mode")
             }
 
             // MARK: - Focus Text
@@ -55,6 +71,8 @@ struct ClickingTab: View {
                         get: { settings.focusTextShortcut },
                         set: { settings.focusTextShortcut = $0 }
                     ))
+                    .accessibilityIdentifier("focus-text-shortcut-recorder")
+                    .accessibilityLabel("Focus Text mode activation shortcut")
                 }
             }
 
@@ -68,6 +86,9 @@ struct ClickingTab: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.regular)
+                .accessibilityIdentifier("restore-defaults-button")
+                .accessibilityLabel("Restore Defaults")
+                .accessibilityHint("Resets all clicking mode settings to their default values")
             }
             .padding(.top, 5)
 

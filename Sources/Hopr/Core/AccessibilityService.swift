@@ -926,7 +926,6 @@ final class AccessibilityService {
     private func deduplicateOverlapping(_ elements: [UIElement]) -> [UIElement] {
         guard elements.count > 1 else { return elements }
 
-        // Priority: button > checkbox > menu > link > text field > static > other
         let rolePriority: [String: Int] = [
             kAXButtonRole as String: 0,
             kAXCheckBoxRole as String: 0,
@@ -942,26 +941,15 @@ final class AccessibilityService {
             "AXMenuExtra": 1,
         ]
 
-        // Layout container roles should NOT discard their child elements during deduplication
         let containerRoles: Set<String> = [
-            "AXGroup",
-            "AXScrollArea",
-            "AXOutline",
-            "AXList",
-            "AXTable",
-            "AXRow",
-            "AXOutlineRow",
-            "AXWindow",
-            "AXWebArea",
-            "AXToolbar",
-            "AXSplitView",
-            "AXScrollbar",
-            "AXSheet"
+            "AXGroup", "AXScrollArea", "AXOutline", "AXList", "AXTable",
+            "AXRow", "AXOutlineRow", "AXWindow", "AXWebArea", "AXToolbar",
+            "AXSplitView", "AXScrollbar", "AXSheet"
         ]
 
+        var keptDict: [UUID: UIElement] = [:]
         var kept: [UIElement] = []
 
-        // Sort: prioritize system overlay elements so they are processed and kept first
         let sorted = elements.sorted { (e1, e2) -> Bool in
             if e1.isSystemOverlay != e2.isSystemOverlay {
                 return e1.isSystemOverlay && !e2.isSystemOverlay
@@ -970,51 +958,51 @@ final class AccessibilityService {
         }
 
         for elem in sorted {
-            var isOverlap = false
-            for existing in kept {
-                // If existing is a layout container, it does not cause overlap discard of its children
-                if containerRoles.contains(existing.role) {
-                    continue
+            var foundOverlap: UUID? = nil
+
+            for keptElem in kept {
+                if containerRoles.contains(keptElem.role) { continue }
+
+                let intersection = elem.frame.intersection(keptElem.frame)
+                guard intersection.width > 0 && intersection.height > 0 else { continue }
+
+                let overlapArea = intersection.width * intersection.height
+                let elemArea = elem.frame.width * elem.frame.height
+                let keptArea = keptElem.frame.width * keptElem.frame.height
+                let smallerArea = min(elemArea, keptArea)
+
+                guard smallerArea > 0 && (overlapArea / smallerArea) > 0.4 else { continue }
+
+                let elemCenter = CGPoint(x: elem.frame.midX, y: elem.frame.midY)
+                let keptCenter = CGPoint(x: keptElem.frame.midX, y: keptElem.frame.midY)
+                let distance = hypot(elemCenter.x - keptCenter.x, elemCenter.y - keptCenter.y)
+                if distance > 8.0 { continue }
+
+                if keptElem.isSystemOverlay && !elem.isSystemOverlay {
+                    foundOverlap = keptElem.id
+                    break
                 }
 
-                let intersection = elem.frame.intersection(existing.frame)
-                if intersection.width > 0 && intersection.height > 0 {
-                    let overlapArea = intersection.width * intersection.height
-                    let elemArea = elem.frame.width * elem.frame.height
-                    let existingArea = existing.frame.width * existing.frame.height
-                    let smallerArea = min(elemArea, existingArea)
+                let elemPriority = rolePriority[elem.role] ?? 99
+                let keptPriority = rolePriority[keptElem.role] ?? 99
+                if elemPriority < keptPriority {
+                    foundOverlap = keptElem.id
+                }
+                break
+            }
 
-                    // If more than 40% of the smaller element overlaps
-                    if smallerArea > 0 && (overlapArea / smallerArea) > 0.4 {
-                        // If center points are far apart (more than 15px), they are likely distinct controls
-                        // (e.g. a small menu button inside or near a large link card) rather than duplicate representations.
-                        let elemCenter = CGPoint(x: elem.frame.midX, y: elem.frame.midY)
-                        let existingCenter = CGPoint(x: existing.frame.midX, y: existing.frame.midY)
-                        if hypot(elemCenter.x - existingCenter.x, elemCenter.y - existingCenter.y) > 8.0 {
-                            continue
-                        }
-
-                        // System overlay elements should NEVER be overridden or discarded by background app elements
-                        if existing.isSystemOverlay && !elem.isSystemOverlay {
-                            isOverlap = true
-                            break
-                        }
-                        
-                        let elemPriority = rolePriority[elem.role] ?? 99
-                        let existingPriority = rolePriority[existing.role] ?? 99
-                        // Keep the one with better priority (lower = better)
-                        if elemPriority < existingPriority {
-                            // Replace existing with elem
-                            if let idx = kept.firstIndex(where: { $0.id == existing.id }) {
-                                kept[idx] = elem
-                            }
-                        }
-                        isOverlap = true
-                        break
+            if let overlapId = foundOverlap {
+                let oldElem = keptDict[overlapId]!
+                let elemPriority = rolePriority[elem.role] ?? 99
+                let oldPriority = rolePriority[oldElem.role] ?? 99
+                if elemPriority < oldPriority {
+                    keptDict[overlapId] = elem
+                    if let idx = kept.firstIndex(where: { $0.id == overlapId }) {
+                        kept[idx] = elem
                     }
                 }
-            }
-            if !isOverlap {
+            } else {
+                keptDict[elem.id] = elem
                 kept.append(elem)
             }
         }
