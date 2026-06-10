@@ -1234,28 +1234,32 @@ final class AccessibilityService {
             }
         }
 
-        // VSCode/Electron: AXGroup with scroll capability
-        if let role, (role == "AXGroup" || role == "AXScrollArea" || role == "AXWebArea") {
-            // Check for AXHasScrollBars or AXScrollVisible
-            var scrollAttr: CFTypeRef?
-            if AXUIElementCopyAttributeValue(element, "AXHasScrollBar" as CFString, &scrollAttr) == .success
-                || AXUIElementCopyAttributeValue(element, "AXScrollVisible" as CFString, &scrollAttr) == .success {
-                if let area = ScrollableArea.from(element) {
-                    if area.frame.width > 50 && area.frame.height > 50 {
-                        results.append(area)
-                    }
+        // VSCode/Electron: AXGroup with actual scroll bars
+        if let role, role == "AXGroup" {
+            // Only add if it actually has visible scroll bars AND reasonable size
+            var hasVerticalBar = false
+            var hasHorizontalBar = false
+            var verticalRef: CFTypeRef?
+            var horizontalRef: CFTypeRef?
+
+            AXUIElementCopyAttributeValue(element, kAXVerticalScrollBarAttribute as CFString, &verticalRef)
+            AXUIElementCopyAttributeValue(element, kAXHorizontalScrollBarAttribute as CFString, &horizontalRef)
+            hasVerticalBar = verticalRef != nil
+            hasHorizontalBar = horizontalRef != nil
+
+            if (hasVerticalBar || hasHorizontalBar), let area = ScrollableArea.from(element) {
+                if area.frame.width > 80 && area.frame.height > 80 {
+                    results.append(area)
                 }
             }
         }
 
-        // Check for AXValue indicating scroll position (text areas, editors)
-        if let role, (role == "AXTextArea" || role == "AXTextGroup" || role == "AXScrollArea") {
-            var scrollVal: CFTypeRef?
-            if AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &scrollVal) == .success {
-                if let area = ScrollableArea.from(element) {
-                    if area.frame.width > 100 && area.frame.height > 100 {
-                        results.append(area)
-                    }
+        // Text areas only if they have multiple lines (i.e., scrollable content)
+        if let role, role == "AXTextArea" {
+            if let area = ScrollableArea.from(element) {
+                // Filter out single-line text areas
+                if area.frame.height > 40 && area.frame.width > 100 {
+                    results.append(area)
                 }
             }
         }
