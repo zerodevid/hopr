@@ -1070,6 +1070,8 @@ final class AccessibilityService {
             // Try to find scroll areas INSIDE the window via AX tree traversal
             var innerAreas: [ScrollableArea] = []
 
+            Log.debug("  Window frame: \(Int(windowFrame.width))×\(Int(windowFrame.height)) @ (\(Int(windowFrame.origin.x)),\(Int(windowFrame.origin.y)))")
+
             if isElectron {
                 findElectronScrollPanels(in: window, windowFrame: windowFrame, depth: 0, results: &innerAreas)
             } else {
@@ -1490,6 +1492,7 @@ final class AccessibilityService {
         var uniqueAreas: [ScrollableArea] = []
         let tolerance: CGFloat = 10
 
+        Log.debug("Dedup phase 1 - Remove near-duplicates (tolerance=\(Int(tolerance))px):")
         for area in areas {
             let isDuplicate = uniqueAreas.contains { existing in
                 abs(existing.frame.origin.x - area.frame.origin.x) < tolerance
@@ -1497,7 +1500,10 @@ final class AccessibilityService {
                 && abs(existing.frame.width - area.frame.width) < tolerance
                 && abs(existing.frame.height - area.frame.height) < tolerance
             }
-            if !isDuplicate {
+            if isDuplicate {
+                Log.debug("  SKIP (duplicate): \(Int(area.frame.width))×\(Int(area.frame.height))")
+            } else {
+                Log.debug("  KEEP: \(Int(area.frame.width))×\(Int(area.frame.height))")
                 uniqueAreas.append(area)
             }
         }
@@ -1505,6 +1511,8 @@ final class AccessibilityService {
         // Remove only VERY nested areas (>95% contained, minimal padding)
         // Keep separate panels (chat, terminal, sidebar) even if they share parent window
         var kept: [ScrollableArea] = []
+
+        Log.debug("Dedup phase 2 - Remove deeply nested areas (>95% overlap):")
         for area in uniqueAreas {
             var isDeeplyNested = false
 
@@ -1519,12 +1527,14 @@ final class AccessibilityService {
                 let overlapRatio = (intersection.width * intersection.height) / areaSize
                 // Very high threshold to keep separate panels like chat & terminal
                 if overlapRatio > 0.95 && other.frame.contains(area.frame) {
+                    Log.debug("  FILTER: \(Int(area.frame.width))×\(Int(area.frame.height)) nested in \(Int(other.frame.width))×\(Int(other.frame.height)) (overlap=\(String(format: "%.1f", overlapRatio * 100))%)")
                     isDeeplyNested = true
                     break
                 }
             }
 
             if !isDeeplyNested {
+                Log.debug("  KEEP: \(Int(area.frame.width))×\(Int(area.frame.height))")
                 kept.append(area)
             }
         }
