@@ -1079,12 +1079,24 @@ final class AccessibilityService {
             if !innerAreas.isEmpty {
                 allAreas.append(contentsOf: innerAreas)
             } else {
-                // Fallback: use the whole window as a scroll area
-                let screenFrame = CGRect(
-                    origin: CGPoint(x: windowFrame.origin.x, y: primaryHeight - windowFrame.origin.y - windowFrame.height),
-                    size: windowFrame.size
-                )
-                allAreas.append(ScrollableArea(element: window, frame: windowFrame, screenFrame: screenFrame))
+                // Fallback: only use window as scroll area if it actually has scroll bars
+                var hasVerticalBar = false
+                var hasHorizontalBar = false
+                var verticalRef: CFTypeRef?
+                var horizontalRef: CFTypeRef?
+
+                AXUIElementCopyAttributeValue(window, kAXVerticalScrollBarAttribute as CFString, &verticalRef)
+                AXUIElementCopyAttributeValue(window, kAXHorizontalScrollBarAttribute as CFString, &horizontalRef)
+                hasVerticalBar = verticalRef != nil
+                hasHorizontalBar = horizontalRef != nil
+
+                if hasVerticalBar || hasHorizontalBar {
+                    let screenFrame = CGRect(
+                        origin: CGPoint(x: windowFrame.origin.x, y: primaryHeight - windowFrame.origin.y - windowFrame.height),
+                        size: windowFrame.size
+                    )
+                    allAreas.append(ScrollableArea(element: window, frame: windowFrame, screenFrame: screenFrame))
+                }
             }
         }
 
@@ -1164,16 +1176,28 @@ final class AccessibilityService {
                 if childSize.width >= size.width * 0.95 && childSize.height >= size.height * 0.95 {
                     // Wrapper panel: recurse into children
                 } else {
-                    // Leaf panel: add and return early
+                    // Leaf panel: add only if it has scroll bars
+                    var verticalRef: CFTypeRef?
+                    var horizontalRef: CFTypeRef?
+                    AXUIElementCopyAttributeValue(element, kAXVerticalScrollBarAttribute as CFString, &verticalRef)
+                    AXUIElementCopyAttributeValue(element, kAXHorizontalScrollBarAttribute as CFString, &horizontalRef)
+                    if verticalRef != nil || horizontalRef != nil {
+                        let area = ScrollableArea(element: element, frame: frame)
+                        results.append(area)
+                        return
+                    }
+                }
+            } else {
+                // Leaf panel: add only if it has scroll bars
+                var verticalRef: CFTypeRef?
+                var horizontalRef: CFTypeRef?
+                AXUIElementCopyAttributeValue(element, kAXVerticalScrollBarAttribute as CFString, &verticalRef)
+                AXUIElementCopyAttributeValue(element, kAXHorizontalScrollBarAttribute as CFString, &horizontalRef)
+                if verticalRef != nil || horizontalRef != nil {
                     let area = ScrollableArea(element: element, frame: frame)
                     results.append(area)
                     return
                 }
-            } else {
-                // Leaf panel: add and return early
-                let area = ScrollableArea(element: element, frame: frame)
-                results.append(area)
-                return
             }
         }
 
