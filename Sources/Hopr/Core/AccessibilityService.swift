@@ -1121,9 +1121,22 @@ final class AccessibilityService {
         if let s = axSizeValue(sizeRef) { size = s }
 
         let panelRoles: Set<String> = ["AXGroup", "AXScrollArea", "AXTextArea", "AXWebArea", "AXList", "AXTable", "AXOutline"]
-        return panelRoles.contains(role)
-            && size.width > 80 && size.height > 80
-            && (size.width < windowFrame.width * 0.95 || size.height < windowFrame.height * 0.85)
+
+        // Check if it's a recognized panel role and has reasonable size
+        guard panelRoles.contains(role) && size.width > 60 && size.height > 60 else { return false }
+
+        // Allow panels that are smaller than the window (sidebar, bottom panels, etc)
+        // Sidebar: narrow but tall (e.g., 250px wide, 600px tall)
+        // Terminal: wide but short (e.g., 1200px wide, 200px tall)
+        // Main editor: fills most of window
+        let widthRatio = size.width / max(windowFrame.width, 1)
+        let heightRatio = size.height / max(windowFrame.height, 1)
+
+        // Accept if it's clearly a side/bottom panel (one dimension small, other large)
+        // OR if it's the main area (both dimensions substantial)
+        return (widthRatio < 0.4 && heightRatio > 0.5)  // Sidebar: narrow, tall
+            || (widthRatio > 0.5 && heightRatio < 0.4)  // Bottom panel: wide, short
+            || (widthRatio > 0.5 && heightRatio > 0.5)  // Main area: large both directions
     }
 
     /// Check if element is likely scrollable using multiple indicators
