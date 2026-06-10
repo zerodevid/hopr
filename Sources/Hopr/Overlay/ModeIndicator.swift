@@ -28,8 +28,7 @@ final class ModeIndicator {
 
     func hide() {
         guard let win = window else { return }
-        self.window = nil
-        
+
         let currentFrame = win.frame
         let position = AppSettings.shared.modeIndicatorPosition
         let offset = (position == "bottom" || position == "center") ? -10.0 : 10.0
@@ -39,14 +38,15 @@ final class ModeIndicator {
             width: currentFrame.size.width,
             height: currentFrame.size.height
         )
-        
+
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = 0.12
             context.timingFunction = CAMediaTimingFunction(name: .easeIn)
             win.animator().alphaValue = 0.0
             win.animator().setFrame(targetFrame, display: true)
-        }) {
+        }) { [weak self] in
             win.orderOut(nil)
+            self?.window = nil
         }
     }
 

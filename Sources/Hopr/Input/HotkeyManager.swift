@@ -4,6 +4,7 @@ import Carbon.HIToolbox
 final class HotkeyManager {
 
     private var eventTap: CFMachPort?
+    private var unmanagedSelf: Unmanaged<HotkeyManager>?
     private weak var modeController: ModeDelegate?
 
     init(modeController: ModeDelegate) {
@@ -14,7 +15,8 @@ final class HotkeyManager {
         let mask = (1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.keyUp.rawValue) | (1 << CGEventType.flagsChanged.rawValue)
 
         // We need to pass self to the callback via Unmanaged
-        let selfPtr = Unmanaged.passRetained(self).toOpaque()
+        let unmanagedManager = Unmanaged.passRetained(self)
+        let selfPtr = unmanagedManager.toOpaque()
 
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
@@ -29,11 +31,12 @@ final class HotkeyManager {
             userInfo: selfPtr
         ) else {
             Log.error("Failed to create event tap. Check accessibility permissions.")
-            Unmanaged<HotkeyManager>.fromOpaque(selfPtr).release()
+            unmanagedManager.release()
             return false
         }
 
         self.eventTap = tap
+        self.unmanagedSelf = unmanagedManager
 
         // Enable the tap
         let runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
@@ -47,6 +50,10 @@ final class HotkeyManager {
     func stop() {
         if let tap = eventTap {
             CGEvent.tapEnable(tap: tap, enable: false)
+        }
+        if let unmanaged = unmanagedSelf {
+            unmanaged.release()
+            unmanagedSelf = nil
         }
     }
 

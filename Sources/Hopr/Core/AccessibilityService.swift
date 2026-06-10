@@ -40,6 +40,7 @@ final class AccessibilityService {
         let timestamp: CFTimeInterval
     }
     private var cacheMap: [pid_t: CacheEntry] = [:]
+    private var textElementCacheMap: [pid_t: CacheEntry] = [:] // Separate cache for text-only elements
     private let cacheTTL: CFTimeInterval = 0.8 // seconds — shorter for snappier refresh
 
     private struct PrefetchedEntry {
@@ -250,9 +251,9 @@ final class AccessibilityService {
         let currentPID = frontApp?.processIdentifier ?? 0
         let now = CACurrentMediaTime()
 
-        // Check cache first
+        // Check cache first (using separate text-only cache)
         let cached: [UIElement]? = cacheQueue.sync {
-            if let entry = cacheMap[currentPID], (now - entry.timestamp) < cacheTTL {
+            if let entry = textElementCacheMap[currentPID], (now - entry.timestamp) < cacheTTL {
                 return entry.elements
             }
             return nil
@@ -294,6 +295,9 @@ final class AccessibilityService {
             }
         }
 
+        cacheQueue.sync {
+            textElementCacheMap[currentPID] = CacheEntry(elements: unique, timestamp: now)
+        }
         return unique
     }
 
