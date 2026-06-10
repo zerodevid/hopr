@@ -1126,6 +1126,42 @@ final class AccessibilityService {
             && (size.width < windowFrame.width * 0.95 || size.height < windowFrame.height * 0.85)
     }
 
+    /// Check if element is likely scrollable using multiple indicators
+    private func isScrollablePanel(_ element: AXUIElement) -> Bool {
+        // Check explicit scroll bars first (most reliable)
+        var verticalRef: CFTypeRef?
+        var horizontalRef: CFTypeRef?
+        AXUIElementCopyAttributeValue(element, kAXVerticalScrollBarAttribute as CFString, &verticalRef)
+        AXUIElementCopyAttributeValue(element, kAXHorizontalScrollBarAttribute as CFString, &horizontalRef)
+        if verticalRef != nil || horizontalRef != nil {
+            return true
+        }
+
+        // Check for AXHasScrollBar attribute (VSCode uses this)
+        var hasScrollRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, "AXHasScrollBar" as CFString, &hasScrollRef) == .success {
+            return true
+        }
+
+        // Check role - some roles are inherently scrollable
+        var roleRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRef) == .success,
+           let role = roleRef as? String {
+            let scrollableRoles: Set<String> = ["AXScrollArea", "AXWebArea", "AXWebDocument", "AXList", "AXTable", "AXOutline"]
+            if scrollableRoles.contains(role) {
+                return true
+            }
+        }
+
+        // Last resort: check if has content that could be scrolled (AXValue)
+        var valueRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &valueRef) == .success {
+            return valueRef != nil
+        }
+
+        return false
+    }
+
     /// Find distinct scrollable sub-panels in Electron apps (VSCode, etc.)
     /// Electron doesn't expose AXScrollArea — instead, panels are AXGroup elements
     /// with distinct non-overlapping frames (sidebar, editor, terminal, panel).
@@ -1176,24 +1212,16 @@ final class AccessibilityService {
                 if childSize.width >= size.width * 0.95 && childSize.height >= size.height * 0.95 {
                     // Wrapper panel: recurse into children
                 } else {
-                    // Leaf panel: add only if it has scroll bars
-                    var verticalRef: CFTypeRef?
-                    var horizontalRef: CFTypeRef?
-                    AXUIElementCopyAttributeValue(element, kAXVerticalScrollBarAttribute as CFString, &verticalRef)
-                    AXUIElementCopyAttributeValue(element, kAXHorizontalScrollBarAttribute as CFString, &horizontalRef)
-                    if verticalRef != nil || horizontalRef != nil {
+                    // Leaf panel: add if scrollable (check multiple indicators)
+                    if isScrollablePanel(element) {
                         let area = ScrollableArea(element: element, frame: frame)
                         results.append(area)
                         return
                     }
                 }
             } else {
-                // Leaf panel: add only if it has scroll bars
-                var verticalRef: CFTypeRef?
-                var horizontalRef: CFTypeRef?
-                AXUIElementCopyAttributeValue(element, kAXVerticalScrollBarAttribute as CFString, &verticalRef)
-                AXUIElementCopyAttributeValue(element, kAXHorizontalScrollBarAttribute as CFString, &horizontalRef)
-                if verticalRef != nil || horizontalRef != nil {
+                // Leaf panel: add if scrollable (check multiple indicators)
+                if isScrollablePanel(element) {
                     let area = ScrollableArea(element: element, frame: frame)
                     results.append(area)
                     return
