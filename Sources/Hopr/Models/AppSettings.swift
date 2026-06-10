@@ -44,6 +44,7 @@ final class AppSettings: ObservableObject {
     @AppStorage("scrollShortcutData") private var scrollShortcutData: Data = Data()
     @AppStorage("mouseShortcutData") private var mouseShortcutData: Data = Data()
     @AppStorage("searchShortcutData") private var searchShortcutData: Data = Data()
+    @AppStorage("focusTextShortcutData") private var focusTextShortcutData: Data = Data()
 
     // Launch at login setting synced with SMAppService
     @AppStorage("launchAtLogin") var launchAtLogin: Bool = false {
@@ -134,6 +135,21 @@ final class AppSettings: ObservableObject {
         }
     }
 
+    var focusTextShortcut: KeyCombo {
+        get {
+            if let combo = try? JSONDecoder().decode(KeyCombo.self, from: focusTextShortcutData) {
+                return combo
+            }
+            // Default: Cmd + Shift + E
+            let cmdAndShift = NSEvent.ModifierFlags([.command, .shift]).rawValue
+            return KeyCombo(keyCode: 14, modifiers: cmdAndShift) // 14 is E
+        }
+        set {
+            focusTextShortcutData = (try? JSONEncoder().encode(newValue)) ?? Data()
+            objectWillChange.send()
+        }
+    }
+
     var searchShortcut: KeyCombo {
         get {
             if let combo = try? JSONDecoder().decode(KeyCombo.self, from: searchShortcutData) {
@@ -184,6 +200,7 @@ final class AppSettings: ObservableObject {
         scrollShortcutData = Data()
         mouseShortcutData = Data()
         searchShortcutData = Data()
+        focusTextShortcutData = Data()
         launchAtLogin = false
         showModeNotification = true
     }

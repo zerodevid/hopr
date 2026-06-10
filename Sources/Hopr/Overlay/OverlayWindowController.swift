@@ -6,6 +6,7 @@ final class OverlayWindowController {
     private var scrollWindows: [NSWindow] = []
     private var modeLabelWindow: NSWindow?
     private var highlightBoxView: HighlightBoxView?
+    private var focusBoxWindow: NSWindow?
     private static var hudNotificationWindow: NSWindow?
 
     /// Show all labels in ONE window — much faster than N windows
@@ -186,7 +187,71 @@ final class OverlayWindowController {
         }
     }
 
+    /// Show labels with highlighted boxes around text input fields (Focus Text mode)
+    func showFocusModeOverlays(for elements: [UIElement]) {
+        showLabels(for: elements)
+        guard !elements.isEmpty else { return }
+
+        let elementsWithFrames = elements.map { (elem: $0, frame: windowFrameFor($0)) }
+
+        // Create one window for all boxes
+        var unionFrame = CGRect.null
+        for screen in NSScreen.screens {
+            unionFrame = unionFrame.union(screen.frame)
+        }
+        let screenFrame = unionFrame.isNull ? (NSScreen.main?.frame ?? NSScreen.screens[0].frame) : unionFrame
+
+        let win = NSPanel(
+            contentRect: screenFrame,
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        win.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.screenSaverWindow)))
+        win.isOpaque = false
+        win.backgroundColor = .clear
+        win.hasShadow = false
+        win.ignoresMouseEvents = true
+        win.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        win.hidesOnDeactivate = false
+        win.isReleasedWhenClosed = false
+
+        let container = NSView(frame: screenFrame)
+        container.wantsLayer = true
+
+        for item in elementsWithFrames {
+            let boxView = TextInputBoxView(frame: item.frame)
+            boxView.alphaValue = 0.0
+            container.addSubview(boxView)
+
+            NSAnimationContext.runAnimationGroup({ context in
+                context.duration = 0.2
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                boxView.animator().alphaValue = 1.0
+            }, completionHandler: nil)
+        }
+
+        win.contentView = container
+        win.alphaValue = 1.0
+        win.orderFrontRegardless()
+        focusBoxWindow = win
+    }
+
+    func dismissFocusBoxes() {
+        guard let win = focusBoxWindow else { return }
+        focusBoxWindow = nil
+
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.10
+            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            win.animator().alphaValue = 0.0
+        }) {
+            win.orderOut(nil)
+        }
+    }
+
     func dismissAll() {
+        dismissFocusBoxes()
         if let mainWin = mainWindow {
             mainWindow = nil
             highlightBoxView = nil
@@ -353,6 +418,11 @@ final class OverlayWindowController {
             subtitle = AppSettings.shared.searchShortcut.displayString
             iconName = "magnifyingglass"
             accentColor = .systemPurple
+        case .focusText:
+            title = "Focus Text"
+            subtitle = AppSettings.shared.focusTextShortcut.displayString
+            iconName = "text.cursor"
+            accentColor = .systemCyan
         }
         
         let panelWidth: CGFloat = 280
@@ -957,6 +1027,45 @@ class HighlightBoxView: NSView {
             )
             (badgeText as NSString).draw(at: textPoint, withAttributes: textAttrs)
         }
+    }
+}
+
+// MARK: - TextInputBoxView
+
+/// Rounded box drawn around text input fields in Focus Text mode.
+/// Cyan border + subtle background fill to make fields visually obvious.
+class TextInputBoxView: NSView {
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor.systemCyan.withAlphaComponent(0.5)
+        shadow.shadowOffset = .zero
+        shadow.shadowBlurRadius = 10.0
+        self.shadow = shadow
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        let borderRect = bounds.insetBy(dx: 1, dy: 1)
+        let borderPath = NSBezierPath(roundedRect: borderRect, xRadius: 6, yRadius: 6)
+
+        let cyan = NSColor.systemCyan
+
+        // Subtle background fill
+        cyan.withAlphaComponent(0.06).setFill()
+        borderPath.fill()
+
+        // Border
+        cyan.withAlphaComponent(0.75).setStroke()
+        borderPath.lineWidth = 2.0
+        borderPath.stroke()
     }
 }
 

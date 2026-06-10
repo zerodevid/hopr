@@ -21,6 +21,8 @@ final class ModeIndicator {
             showPill(icon: "magnifyingglass", text: "Search — type to filter · Enter to click", color: .systemBlue, shouldRotate: false)
         case .mouse:
             showPill(icon: "computermouse", text: "Mouse — WASD move · Q click (hold: drag) · E right-click · ←↓↑→ scroll · Esc exit", color: .systemPurple, shouldRotate: false)
+        case .focusText:
+            showPill(icon: "text.cursor", text: "Focus Text — type label to focus input field · Esc exit", color: .systemCyan, shouldRotate: false)
         }
     }
 

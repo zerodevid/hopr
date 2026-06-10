@@ -48,6 +48,16 @@ struct ClickingTab: View {
                           value: $settings.hideLabelsBeforeSearch)
             }
 
+            // MARK: - Focus Text
+            SettingsCard(title: "Focus Text") {
+                LabeledRow("Activation Shortcut", isLast: false) {
+                    ShortcutRecorder(keyCombo: Binding(
+                        get: { settings.focusTextShortcut },
+                        set: { settings.focusTextShortcut = $0 }
+                    ))
+                }
+            }
+
             // Restore Defaults
             HStack {
                 Spacer()

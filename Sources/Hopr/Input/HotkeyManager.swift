@@ -142,6 +142,16 @@ final class HotkeyManager {
             return nil
         }
 
+        // Match Focus Text Shortcut
+        if eventMatchesKeyCombo(event, combo: settings.focusTextShortcut) {
+            if modeController?.currentMode == .focusText {
+                modeController?.deactivateCurrentMode()
+            } else {
+                modeController?.activateFocusTextMode()
+            }
+            return nil
+        }
+
         // If in idle mode, we don't handle any other shortcuts, just pass them through
         if modeController?.currentMode == .idle {
             return Unmanaged.passUnretained(event)

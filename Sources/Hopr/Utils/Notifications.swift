@@ -8,4 +8,5 @@ extension Notification.Name {
     static let mouseDragDidStart = Notification.Name("mouseDragDidStart")
     static let mouseDragDidEnd = Notification.Name("mouseDragDidEnd")
     static let scrollModeDidExit = Notification.Name("scrollModeDidExit")
+    static let focusTextModeDidClick = Notification.Name("focusTextModeDidClick")
 }

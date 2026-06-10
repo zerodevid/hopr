@@ -243,6 +243,67 @@ final class AccessibilityService {
         return processed
     }
 
+    /// Fast focused scan: only text input fields (text fields, text areas, combo boxes).
+    /// Much faster than getActionableElements() which scans ALL roles.
+    func getTextInputElements(for app: NSRunningApplication? = nil) -> [UIElement] {
+        let frontApp = app ?? NSWorkspace.shared.frontmostApplication
+        let currentPID = frontApp?.processIdentifier ?? 0
+        let now = CACurrentMediaTime()
+
+        // Check cache first
+        let cached: [UIElement]? = cacheQueue.sync {
+            if let entry = cacheMap[currentPID], (now - entry.timestamp) < cacheTTL {
+                return entry.elements
+            }
+            return nil
+        }
+        if let cached = cached { return cached }
+
+        guard let frontApp = frontApp else { return [] }
+        let appElement = AXUIElementCreateApplication(frontApp.processIdentifier)
+
+        if isElectronApp(frontApp) {
+            AXUIElementSetAttributeValue(appElement, "AXManualAccessibility" as CFString, true as CFTypeRef)
+        } else {
+            AXUIElementSetAttributeValue(appElement, "AXEnhancedUserInterface" as CFString, true as CFTypeRef)
+        }
+
+        // Only search text-related roles — much faster than full scan
+        let textSearchKeys = [
+            "AXTextFieldSearchKey",
+            "AXTextAreaSearchKey",
+        ]
+
+        var elements = searchViaPredicate(appElement: appElement, searchKeys: textSearchKeys)
+
+        // Also check browser elements for text fields in web pages
+        if let browserElements = extractBrowserElements(frontApp: frontApp, appElement: appElement) {
+            let textRoles: Set<String> = ["AXTextField", "AXTextArea", "AXSearchField", "AXComboBox"]
+            let webTextFields = browserElements.filter { textRoles.contains($0.role) }
+            elements.append(contentsOf: webTextFields)
+        }
+
+        // Deduplicate by role+title
+        var seen = Set<String>()
+        var unique: [UIElement] = []
+        for elem in elements {
+            let key = "\(elem.role):\(elem.title):\(Int(elem.frame.origin.x)),\(Int(elem.frame.origin.y))"
+            if !seen.contains(key) {
+                seen.insert(key)
+                unique.append(elem)
+            }
+        }
+
+        return unique
+    }
+
+    /// Cache pre-scanned text input elements for instant FocusTextMode activation.
+    func cacheTextInputElements(_ elements: [UIElement], for pid: pid_t, bundleID: String) {
+        cacheQueue.sync {
+            prefetchedMap[pid] = PrefetchedEntry(elements: elements, timestamp: CACurrentMediaTime(), bundleID: bundleID)
+        }
+    }
+
     private struct BrowserElement: Decodable {
         let left: Double
         let top: Double

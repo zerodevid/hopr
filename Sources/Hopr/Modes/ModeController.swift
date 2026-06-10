@@ -6,6 +6,7 @@ enum AppMode {
     case scroll
     case search
     case mouse
+    case focusText
 }
 
 struct KeyModifiers {
@@ -38,6 +39,7 @@ protocol ModeDelegate: AnyObject {
     func activateScrollMode()
     func activateSearchMode()
     func activateMouseMode()
+    func activateFocusTextMode()
     func deactivateCurrentMode()
     func handleKeyPress(_ key: String, keyCode: UInt16, isRepeat: Bool, modifiers: KeyModifiers) -> Bool
     func handleKeyUp(_ key: String, keyCode: UInt16)
@@ -70,6 +72,10 @@ final class ModeController: ModeDelegate {
 
     func activateMouseMode() {
         activate(.mouse)
+    }
+
+    func activateFocusTextMode() {
+        activate(.focusText)
     }
 
     private func activate(_ mode: AppMode) {

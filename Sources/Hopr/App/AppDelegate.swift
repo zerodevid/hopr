@@ -10,6 +10,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let scrollMode = ScrollMode()
     private let searchMode = SearchMode()
     private let mouseMode = MouseMode()
+    private let focusTextMode = FocusTextMode()
     private let modeIndicator = ModeIndicator()
     private var prefetchTimer: Timer?
     private var menubarObserver: NSObjectProtocol?
@@ -35,6 +36,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self,
             selector: #selector(handleHintClick),
             name: .hintModeDidClick,
+            object: nil
+        )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleFocusTextClick),
+            name: .focusTextModeDidClick,
             object: nil
         )
 
@@ -96,6 +104,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Initial prefetch after a short delay to let the system settle
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
             self?.hintMode.prefetch()
+            self?.focusTextMode.prefetch()
         }
 
         setupPrefetchTimer()
@@ -125,6 +134,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 // Do not deactivate current mode for ignored, self, Screen Studio, or accessory apps
                 if modeController.currentMode == .idle {
                     hintMode.prefetch(for: app)
+                    focusTextMode.prefetch(for: app)
                 }
                 return
             }
@@ -137,8 +147,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         if let app = notification.object as? NSRunningApplication {
             hintMode.prefetch(for: app)
+            focusTextMode.prefetch(for: app)
         } else {
             hintMode.prefetch()
+            focusTextMode.prefetch()
         }
     }
 
@@ -174,6 +186,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         addMenuItem(menu, title: "Scroll Mode", shortcut: settings.scrollShortcut.displayString, action: #selector(activateScroll))
         addMenuItem(menu, title: "Mouse Mode", shortcut: settings.mouseShortcut.displayString, action: #selector(activateMouse))
         addMenuItem(menu, title: "Search Mode", shortcut: settings.searchShortcut.displayString, action: #selector(activateSearch))
+        addMenuItem(menu, title: "Focus Text", shortcut: settings.focusTextShortcut.displayString, action: #selector(activateFocusText))
         addMenuItem(menu, title: "Exit Mode", shortcut: "Esc", action: #selector(activateEscape))
 
         menu.addItem(NSMenuItem.separator())
@@ -221,6 +234,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         modeController.activateSearchMode()
     }
 
+    @objc private func activateFocusText() {
+        modeController.activateFocusTextMode()
+    }
+
     @objc private func activateEscape() {
         modeController.deactivateCurrentMode()
     }
@@ -234,6 +251,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         modeController.registerMode(scrollMode, for: .scroll)
         modeController.registerMode(searchMode, for: .search)
         modeController.registerMode(mouseMode, for: .mouse)
+        modeController.registerMode(focusTextMode, for: .focusText)
 
         modeController.onModeChange = { [weak self] mode in
             self?.handleModeChange(mode)
@@ -248,6 +266,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func handleHintClick() {
+        modeController.deactivateCurrentMode()
+    }
+
+    @objc private func handleFocusTextClick() {
         modeController.deactivateCurrentMode()
     }
 
@@ -304,6 +326,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             scrollMode.deactivate()
             searchMode.deactivate()
             mouseMode.deactivate()
+            focusTextMode.deactivate()
             SoundManager.shared.playExitMode()
             menubarAnimator?.setExpression(.normal)
         case .hint:
@@ -314,6 +337,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menubarAnimator?.playHappy()
         case .search:
             searchMode.activate()
+            menubarAnimator?.setExpression(.surprised, revertAfter: 1.0)
+        case .focusText:
+            focusTextMode.activate()
             menubarAnimator?.setExpression(.surprised, revertAfter: 1.0)
         case .mouse:
             mouseMode.activate()
