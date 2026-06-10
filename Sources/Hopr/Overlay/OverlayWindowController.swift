@@ -789,9 +789,21 @@ final class OverlayWindowController {
 
     private func windowFrameFor(_ element: UIElement) -> NSRect {
         let axFrame = element.frame
-        let primaryHeight = NSScreen.screens.first?.frame.height ?? 1080
-        let flippedY = primaryHeight - axFrame.origin.y - axFrame.size.height
+        if let accurate = getScreenFrameForAX(axFrame) {
+            return accurate
+        }
 
+        let screen = NSScreen.screens.first(where: { $0.frame.contains(CGPoint(x: axFrame.midX, y: axFrame.midY)) })
+            ?? NSScreen.main
+            ?? NSScreen.screens.first
+
+        guard let screen = screen else {
+            let primaryHeight = 1080
+            let flippedY = CGFloat(primaryHeight) - axFrame.origin.y - axFrame.size.height
+            return NSRect(x: axFrame.origin.x, y: flippedY, width: axFrame.size.width, height: axFrame.size.height)
+        }
+
+        let flippedY = screen.frame.height - axFrame.origin.y - axFrame.size.height
         return NSRect(
             x: axFrame.origin.x,
             y: flippedY,
@@ -805,10 +817,18 @@ final class OverlayWindowController {
         if let accurate = getScreenFrameForAX(axFrame) {
             return accurate
         }
-        // Fallback: flip AX coordinates
-        let primaryHeight = NSScreen.screens.first?.frame.height ?? 1080
-        let flippedY = primaryHeight - axFrame.origin.y - axFrame.size.height
+        // Fallback: find screen containing the element or use main screen
+        let screen = NSScreen.screens.first(where: { $0.frame.contains(CGPoint(x: axFrame.midX, y: axFrame.midY)) })
+            ?? NSScreen.main
+            ?? NSScreen.screens.first
 
+        guard let screen = screen else {
+            let primaryHeight = 1080
+            let flippedY = CGFloat(primaryHeight) - axFrame.origin.y - axFrame.size.height
+            return NSRect(x: axFrame.origin.x, y: flippedY, width: axFrame.size.width, height: axFrame.size.height)
+        }
+
+        let flippedY = screen.frame.height - axFrame.origin.y - axFrame.size.height
         return NSRect(
             x: axFrame.origin.x,
             y: flippedY,

@@ -385,4 +385,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             NSApplication.shared.applicationIconImage = resizeAndPadIcon(icon, scaleFactor: 0.80)
         }
     }
+
+    deinit {
+        if let observer = menubarObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        hotkeyManager?.stop()
+    }
 }
