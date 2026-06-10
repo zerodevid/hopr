@@ -1443,24 +1443,28 @@ final class AccessibilityService {
             }
         }
 
-        // Now, if one area contains another area, keep the smaller (contained) one and discard the larger (containing) one.
+        // Remove nested/overlapping scroll areas - prefer outermost containers
         var kept: [ScrollableArea] = []
         for area in uniqueAreas {
-            let containsOther = uniqueAreas.contains { other in
-                if other.frame == area.frame { return false }
-                
-                // Get containing element role
-                var existingRoleRef: CFTypeRef?
-                AXUIElementCopyAttributeValue(area.element, kAXRoleAttribute as CFString, &existingRoleRef)
-                let existingRole = existingRoleRef as? String ?? ""
-                
-                // Allow nested scrollareas inside AXWebArea, AXWebDocument, AXWindow, and AXScrollArea
-                if existingRole == "AXWebArea" || existingRole == "AXWebDocument" || existingRole == "AXWindow" || existingRole == "AXScrollArea" {
-                    return false
+            var isNestedInOther = false
+
+            for other in uniqueAreas {
+                if other.frame == area.frame { continue }
+
+                // Check if this area is mostly contained in another (>70% overlap)
+                let intersection = area.frame.intersection(other.frame)
+                let areaSize = area.frame.width * area.frame.height
+                guard areaSize > 0 else { continue }
+
+                let overlapRatio = (intersection.width * intersection.height) / areaSize
+                if overlapRatio > 0.7 && other.frame.contains(area.frame) {
+                    // This area is nested inside another - prefer the outer one
+                    isNestedInOther = true
+                    break
                 }
-                return area.frame.contains(other.frame)
             }
-            if !containsOther {
+
+            if !isNestedInOther {
                 kept.append(area)
             }
         }
