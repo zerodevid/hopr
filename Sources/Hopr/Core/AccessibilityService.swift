@@ -1102,7 +1102,13 @@ final class AccessibilityService {
             }
         }
 
-        let result = deduplicateScrollAreas(allAreas)
+        // Filter out fullsize window containers (keep only actual panels)
+        let filteredAreas = allAreas.filter { area in
+            let isWindowSize = (area.frame.width >= windowFrame.width * 0.95) && (area.frame.height >= windowFrame.height * 0.95)
+            return !isWindowSize
+        }
+
+        let result = deduplicateScrollAreas(filteredAreas.isEmpty ? allAreas : filteredAreas)
         Log.debug("getAllScrollAreas: \(targetWindows.count) windows scanned, \(allAreas.count) raw areas → \(result.count) after dedup")
 
         // Debug: log each area
