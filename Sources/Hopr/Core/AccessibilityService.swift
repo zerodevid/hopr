@@ -1443,28 +1443,29 @@ final class AccessibilityService {
             }
         }
 
-        // Remove nested/overlapping scroll areas - prefer outermost containers
+        // Remove only VERY nested areas (>95% contained, minimal padding)
+        // Keep separate panels (chat, terminal, sidebar) even if they share parent window
         var kept: [ScrollableArea] = []
         for area in uniqueAreas {
-            var isNestedInOther = false
+            var isDeeplyNested = false
 
             for other in uniqueAreas {
                 if other.frame == area.frame { continue }
 
-                // Check if this area is mostly contained in another (>70% overlap)
+                // Only filter if area is EXTREMELY nested (>95% overlap AND fully contained)
                 let intersection = area.frame.intersection(other.frame)
                 let areaSize = area.frame.width * area.frame.height
                 guard areaSize > 0 else { continue }
 
                 let overlapRatio = (intersection.width * intersection.height) / areaSize
-                if overlapRatio > 0.7 && other.frame.contains(area.frame) {
-                    // This area is nested inside another - prefer the outer one
-                    isNestedInOther = true
+                // Very high threshold to keep separate panels like chat & terminal
+                if overlapRatio > 0.95 && other.frame.contains(area.frame) {
+                    isDeeplyNested = true
                     break
                 }
             }
 
-            if !isNestedInOther {
+            if !isDeeplyNested {
                 kept.append(area)
             }
         }
