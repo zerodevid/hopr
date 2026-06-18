@@ -55,6 +55,11 @@ final class ModeIndicator {
     }
 
     private func showPill(icon: String, text: String, color: NSColor, shouldRotate: Bool = false) {
+        // "Hide" disables the on-screen mode indicator entirely.
+        if AppSettings.shared.modeIndicatorPosition == "hide" {
+            hide()
+            return
+        }
         if window == nil {
             createWindow()
         }

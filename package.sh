@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+#
+# package.sh — build Hopr as a proper, code-signed Hopr.app bundle.
+#
+# SMAppService.mainApp ("Launch at Login") only works from a real, signed .app
+# bundle. Running the bare SwiftPM executable fails with
+# SMAppServiceErrorDomain Code=22 (Invalid argument). This script produces a
+# bundle that satisfies those requirements.
+#
+# Usage:
+#   ./package.sh                 # release build, ad-hoc signed, output in ./dist
+#   ./package.sh --debug         # use the debug build instead of release
+#   CODESIGN_ID="Developer ID Application: You (TEAMID)" ./package.sh
+#                                # sign with a real identity (needed for
+#                                # distribution; ad-hoc is fine for local use)
+#
+set -euo pipefail
+
+APP_NAME="Hopr"
+BUNDLE_ID="com.hopr.app"
+VERSION="1.0.0"
+BUILD_NUMBER="1"
+MIN_MACOS="13.0"
+
+CONFIG="release"
+if [[ "${1:-}" == "--debug" ]]; then
+    CONFIG="debug"
+fi
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SIGN_ID="${CODESIGN_ID:--}"   # default to ad-hoc signing
+
+echo "==> Building $APP_NAME ($CONFIG)…"
+swift build -c "$CONFIG"
+BIN_DIR="$(swift build -c "$CONFIG" --show-bin-path)"
+EXECUTABLE="$BIN_DIR/$APP_NAME"
+
+if [[ ! -x "$EXECUTABLE" ]]; then
+    echo "error: built executable not found at $EXECUTABLE" >&2
+    exit 1
+fi
+
+APP_DIR="$ROOT/dist/$APP_NAME.app"
+CONTENTS="$APP_DIR/Contents"
+MACOS_DIR="$CONTENTS/MacOS"
+RES_DIR="$CONTENTS/Resources"
+
+echo "==> Assembling bundle at ${APP_DIR}…"
+rm -rf "$APP_DIR"
+mkdir -p "$MACOS_DIR" "$RES_DIR"
+
+cp "$EXECUTABLE" "$MACOS_DIR/$APP_NAME"
+
+# Copy resources flat — the app looks them up via Bundle.main.resourcePath.
+if [[ -d "$ROOT/Resources" ]]; then
+    cp -R "$ROOT/Resources/." "$RES_DIR/"
+fi
+
+cat > "$CONTENTS/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>$APP_NAME</string>
+    <key>CFBundleDisplayName</key>
+    <string>$APP_NAME</string>
+    <key>CFBundleIdentifier</key>
+    <string>$BUNDLE_ID</string>
+    <key>CFBundleExecutable</key>
+    <string>$APP_NAME</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>$VERSION</string>
+    <key>CFBundleVersion</key>
+    <string>$BUILD_NUMBER</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>$MIN_MACOS</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+</dict>
+</plist>
+PLIST
+
+echo "==> Code signing (identity: $SIGN_ID)…"
+codesign --force --deep --options runtime --sign "$SIGN_ID" "$APP_DIR"
+codesign --verify --verbose "$APP_DIR"
+
+echo ""
+echo "✅ Built $APP_DIR"
+echo ""
+echo "Next steps to enable Launch at Login:"
+echo "  • Run it:        open \"$APP_DIR\""
+echo "  • Or install it: cp -R \"$APP_DIR\" /Applications/ && open \"/Applications/$APP_NAME.app\""
+echo ""
+echo "Note: ad-hoc signing works for running on this Mac. For distribution to"
+echo "other machines, re-run with CODESIGN_ID set to a Developer ID identity."

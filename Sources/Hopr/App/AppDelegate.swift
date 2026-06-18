@@ -187,7 +187,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         addMenuItem(menu, title: "Mouse Mode", shortcut: settings.mouseShortcut.displayString, action: #selector(activateMouse))
         addMenuItem(menu, title: "Search Mode", shortcut: settings.searchShortcut.displayString, action: #selector(activateSearch))
         addMenuItem(menu, title: "Focus Text", shortcut: settings.focusTextShortcut.displayString, action: #selector(activateFocusText))
-        addMenuItem(menu, title: "Exit Mode", shortcut: "Esc", action: #selector(activateEscape))
 
         menu.addItem(NSMenuItem.separator())
 
@@ -236,10 +235,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func activateFocusText() {
         modeController.activateFocusTextMode()
-    }
-
-    @objc private func activateEscape() {
-        modeController.deactivateCurrentMode()
     }
 
     @objc private func openSettings() {

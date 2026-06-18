@@ -69,10 +69,20 @@ final class AppSettings: ObservableObject {
         return (background: bg, text: text)
     }
 
+    /// `SMAppService.mainApp` only works when the process is running from a real,
+    /// code-signed `.app` bundle. Running the bare SwiftPM executable (e.g. via
+    /// `swift run` or the VSCode Swift extension) makes `register()` fail with
+    /// `SMAppServiceErrorDomain Code=22 (Invalid argument)`. Detect that here so we
+    /// can skip registration gracefully instead of logging an opaque error.
+    private var canUseLaunchAtLogin: Bool {
+        Bundle.main.bundleURL.pathExtension == "app"
+    }
+
     init() {
         // Synchronize initial state of launch at login from system SMAppService
-        let status = SMAppService.mainApp.status
-        self.launchAtLogin = (status == .enabled)
+        if canUseLaunchAtLogin {
+            self.launchAtLogin = (SMAppService.mainApp.status == .enabled)
+        }
 
         // Migrate old copy-pasted default mouse keys (J,K,H,L) to WASD (13, 1, 0, 2)
         if mouseKeyUp == 38 && mouseKeyDown == 40 && mouseKeyLeft == 4 && mouseKeyRight == 37 {
@@ -168,6 +178,10 @@ final class AppSettings: ObservableObject {
     // MARK: - Launch at Login Sync
 
     func syncLaunchAtLogin() {
+        guard canUseLaunchAtLogin else {
+            Log.info("Launch at Login unavailable: Hopr is running as a bare executable, not a signed .app bundle. Build/run Hopr.app to enable it.")
+            return
+        }
         let status = SMAppService.mainApp.status
         if launchAtLogin && status != .enabled {
             do {
@@ -175,6 +189,8 @@ final class AppSettings: ObservableObject {
                 Log.info("Registered launch at login successfully")
             } catch {
                 Log.error("SMAppService registration failed: \(error)")
+                // Registration failed — keep the UI toggle in sync with reality.
+                DispatchQueue.main.async { self.launchAtLogin = false }
             }
         } else if !launchAtLogin && status == .enabled {
             do {

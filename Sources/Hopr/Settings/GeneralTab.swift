@@ -57,9 +57,10 @@ struct GeneralTab: View {
                         Text("Top").tag("top")
                         Text("Center").tag("center")
                         Text("Bottom").tag("bottom")
+                        Text("Hide").tag("hide")
                     }
                     .pickerStyle(.segmented)
-                    .frame(width: 180)
+                    .frame(width: 220)
                     .labelsHidden()
                 }
 

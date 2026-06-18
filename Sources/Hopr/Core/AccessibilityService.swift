@@ -277,6 +277,22 @@ final class AccessibilityService {
 
         var elements = searchViaPredicate(appElement: appElement, searchKeys: textSearchKeys)
 
+        // The AX search predicate is unreliable for Electron apps (VSCode, Slack, Discord,
+        // Notion, Obsidian) and occasionally for native apps — it can return zero text fields
+        // even when an editor or input is right there. Walk the window tree as a fallback so
+        // edit mode actually finds the text area instead of showing nothing.
+        if elements.isEmpty || isElectronApp(frontApp) {
+            var traversed: [UIElement] = []
+            if let window = getFrontmostWindow(from: appElement) {
+                traverse(element: window, depth: 0, parentRowId: nil, inListOrRow: false, elements: &traversed)
+            } else if let windows = getAllWindows(from: appElement) {
+                for window in windows {
+                    traverse(element: window, depth: 0, parentRowId: nil, inListOrRow: false, elements: &traversed)
+                }
+            }
+            elements.append(contentsOf: traversed.filter { $0.isTextInput })
+        }
+
         // Also check browser elements for text fields in web pages
         if let browserElements = extractBrowserElements(frontApp: frontApp, appElement: appElement) {
             let textRoles: Set<String> = ["AXTextField", "AXTextArea", "AXSearchField", "AXComboBox"]
@@ -462,7 +478,15 @@ final class AccessibilityService {
         var errorInfo: NSDictionary?
         let resultDescriptor = script.executeAndReturnError(&errorInfo)
         if let error = errorInfo {
-            Log.error("AppleScript error querying browser elements: \(error)")
+            // Error -2700/12: "Allow JavaScript from Apple Events" is disabled in the browser.
+            // This is an expected condition (off by default for security) — we silently fall back
+            // to accessibility-tree traversal, so don't treat it as an error.
+            let code = (error[NSAppleScript.errorNumber] as? Int) ?? 0
+            if code == 12 {
+                Log.debug("Browser JavaScript-from-Apple-Events disabled; falling back to AX tree")
+            } else {
+                Log.error("AppleScript error querying browser elements: \(error)")
+            }
             return []
         }
         
@@ -1073,13 +1097,34 @@ final class AccessibilityService {
             Log.debug("  Window frame: \(Int(windowFrame.width))×\(Int(windowFrame.height)) @ (\(Int(windowFrame.origin.x)),\(Int(windowFrame.origin.y)))")
 
             if isElectron {
-                findElectronScrollPanels(in: window, windowFrame: windowFrame, depth: 0, results: &innerAreas)
+                // Collect every scrollable panel, then reduce to the distinct leaf
+                // regions (sidebar, editor, terminal). The old recursive add-and-return
+                // collapsed everything into one region — it never reached the sidebar
+                // or terminal because it stopped descending once it added the editor.
+                var rawPanels: [ScrollableArea] = []
+                collectElectronScrollPanels(in: window, windowFrame: windowFrame, depth: 0, results: &rawPanels)
+                innerAreas = reduceToLeafPanels(rawPanels)
+                Log.debug("  Electron: \(rawPanels.count) raw panels → \(innerAreas.count) leaf regions")
             } else {
                 findScrollAreas(in: window, depth: 0, results: &innerAreas)
             }
 
             if !innerAreas.isEmpty {
-                allAreas.append(contentsOf: innerAreas)
+                // If this window has smaller sub-panels (sidebar, terminal, list, etc.),
+                // drop any area that spans essentially the whole window. That area is just
+                // the container; keeping it makes the dedup pass discard the real sub-panels
+                // (they're >95% nested inside it). Thresholds are relative to the window so
+                // this behaves correctly on any screen size — small laptop or large monitor.
+                let isFullsize: (ScrollableArea) -> Bool = { area in
+                    area.frame.width >= windowFrame.width * 0.9
+                        && area.frame.height >= windowFrame.height * 0.9
+                }
+                let hasSubPanels = innerAreas.contains { !isFullsize($0) }
+                if hasSubPanels {
+                    allAreas.append(contentsOf: innerAreas.filter { !isFullsize($0) })
+                } else {
+                    allAreas.append(contentsOf: innerAreas)
+                }
             } else {
                 // Fallback: only use window as scroll area if it actually has scroll bars
                 var hasVerticalBar = false
@@ -1102,17 +1147,7 @@ final class AccessibilityService {
             }
         }
 
-        // Filter out fullsize window containers (keep only actual panels)
-        // If we have a mix of window-size and smaller areas, prefer smaller ones
-        let hasSmallAreas = allAreas.contains { $0.frame.width < 1600 || $0.frame.height < 900 }
-        let filteredAreas: [ScrollableArea]
-        if hasSmallAreas {
-            filteredAreas = allAreas.filter { !($0.frame.width >= 1700 && $0.frame.height >= 1000) }
-        } else {
-            filteredAreas = allAreas
-        }
-
-        let result = deduplicateScrollAreas(filteredAreas)
+        let result = deduplicateScrollAreas(allAreas)
         Log.debug("getAllScrollAreas: \(targetWindows.count) windows scanned, \(allAreas.count) raw areas → \(result.count) after dedup")
 
         // Debug: log each area
@@ -1164,10 +1199,14 @@ final class AccessibilityService {
         let isSidebar = widthRatio < 0.4 && heightRatio > 0.5
         let isBottomPanel = widthRatio > 0.5 && heightRatio < 0.4
         let isMainArea = widthRatio > 0.5 && heightRatio > 0.5
+        // Medium panel: a meaningful region in both dimensions that isn't a full sidebar
+        // or main area — e.g. the Claude conversation pane or a split editor column.
+        // The >60px size gate above already excludes small widgets.
+        let isMediumPanel = widthRatio >= 0.2 && heightRatio >= 0.2
 
-        let result = isSidebar || isBottomPanel || isMainArea
+        let result = isSidebar || isBottomPanel || isMainArea || isMediumPanel
         if result {
-            let type = isSidebar ? "SIDEBAR" : (isBottomPanel ? "BOTTOM" : "MAIN")
+            let type = isSidebar ? "SIDEBAR" : (isBottomPanel ? "BOTTOM" : (isMainArea ? "MAIN" : "MEDIUM"))
             Log.debug("    isPanelElement(\(role)): YES (\(type)) w=\(String(format: "%.1f", widthRatio))% h=\(String(format: "%.1f", heightRatio * 100))%")
         } else {
             Log.debug("    isPanelElement(\(role)): NO - ratios w=\(String(format: "%.1f", widthRatio * 100))% h=\(String(format: "%.1f", heightRatio * 100))%")
@@ -1227,10 +1266,12 @@ final class AccessibilityService {
         return false
     }
 
-    /// Find distinct scrollable sub-panels in Electron apps (VSCode, etc.)
-    /// Electron doesn't expose AXScrollArea — instead, panels are AXGroup elements
-    /// with distinct non-overlapping frames (sidebar, editor, terminal, panel).
-    private func findElectronScrollPanels(
+    /// Collect EVERY scrollable panel in an Electron app (VSCode, etc.).
+    /// Electron doesn't expose AXScrollArea — panels are AXGroup elements with distinct
+    /// frames (sidebar, editor, terminal). Unlike the old approach, this never stops
+    /// descending early, so panels in sibling subtrees (sidebar AND editor AND terminal)
+    /// are all found. `reduceToLeafPanels` then picks the distinct regions.
+    private func collectElectronScrollPanels(
         in element: AXUIElement,
         windowFrame: CGRect,
         depth: Int,
@@ -1239,17 +1280,17 @@ final class AccessibilityService {
         // Electron trees are deep; we need enough depth to reach the panel level
         guard depth < 30 else { return }
 
-        var posRef: CFTypeRef?
-        var sizeRef: CFTypeRef?
-        AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &posRef)
-        AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &sizeRef)
-        var point = CGPoint.zero
-        var size = CGSize.zero
-        if let p = axPointValue(posRef) { point = p }
-        if let s = axSizeValue(sizeRef) { size = s }
-        let frame = CGRect(origin: point, size: size)
-
-        let isPanel = isPanelElement(element, windowFrame: windowFrame)
+        if isPanelElement(element, windowFrame: windowFrame) && isScrollablePanel(element) {
+            var posRef: CFTypeRef?
+            var sizeRef: CFTypeRef?
+            AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &posRef)
+            AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &sizeRef)
+            var point = CGPoint.zero
+            var size = CGSize.zero
+            if let p = axPointValue(posRef) { point = p }
+            if let s = axSizeValue(sizeRef) { size = s }
+            results.append(ScrollableArea(element: element, frame: CGRect(origin: point, size: size)))
+        }
 
         var childrenRef: CFTypeRef?
         if AXUIElementCopyAttributeValue(element, "AXChildrenInNavigationOrder" as CFString, &childrenRef) != .success {
@@ -1257,51 +1298,38 @@ final class AccessibilityService {
         }
         let children = childrenRef as? [AXUIElement] ?? []
 
-        if isPanel {
-            // Filter immediate children that are panel candidates
-            var childPanels: [(AXUIElement, CGSize)] = []
-            for child in children {
-                if isPanelElement(child, windowFrame: windowFrame) {
-                    var childSizeRef: CFTypeRef?
-                    AXUIElementCopyAttributeValue(child, kAXSizeAttribute as CFString, &childSizeRef)
-                    var childSize = CGSize.zero
-                    if let s = axSizeValue(childSizeRef) { childSize = s }
-                    childPanels.append((child, childSize))
-                }
-            }
-            
-            if childPanels.count >= 2 {
-                // Layout container with multiple panels (e.g., VSCode main window)
-                // Recurse to find individual panels
-                Log.debug("    Panel with \(childPanels.count) children - recursing")
-            } else if childPanels.count == 1 {
-                let childSize = childPanels[0].1
-                if childSize.width >= size.width * 0.95 && childSize.height >= size.height * 0.95 {
-                    // Wrapper panel: recurse into single child
-                    Log.debug("    Single wrapper child - recursing")
-                } else {
-                    // Leaf panel with one child: add it if it looks scrollable
-                    Log.debug("    Leaf panel with 1 child size=\(Int(childSize.width))×\(Int(childSize.height))")
-                    if isScrollablePanel(element) {
-                        let area = ScrollableArea(element: element, frame: frame)
-                        results.append(area)
-                        return
-                    }
-                }
-            } else {
-                // No child panels found - this could be a leaf scrollable panel itself
-                // (e.g., sidebar outline, terminal, editor content area)
-                Log.debug("    No child panels - checking if self is scrollable")
-                if isScrollablePanel(element) {
-                    let area = ScrollableArea(element: element, frame: frame)
-                    results.append(area)
-                    return
-                }
-            }
+        for child in children {
+            collectElectronScrollPanels(in: child, windowFrame: windowFrame, depth: depth + 1, results: &results)
+        }
+    }
+
+    /// Reduce a flat list of candidate panels to the distinct scrollable regions.
+    ///
+    /// Drops any panel that acts as a *container* of 2+ smaller sub-panels (e.g. the
+    /// right-hand region wrapping both editor and terminal) — we want the individual
+    /// editor and terminal, not their shared wrapper. Single-child wrappers and leaf
+    /// panels are kept; near-duplicate / fully-nested leftovers are collapsed by the
+    /// shared `deduplicateScrollAreas` pass later.
+    private func reduceToLeafPanels(_ panels: [ScrollableArea]) -> [ScrollableArea] {
+        guard panels.count > 1 else { return panels }
+
+        // A panel "contains" another if it wraps it with a meaningful size margin
+        // (strictly larger, ≥95% of the inner panel overlapped).
+        func contains(_ outer: CGRect, _ inner: CGRect) -> Bool {
+            guard outer != inner else { return false }
+            let innerArea = inner.width * inner.height
+            guard innerArea > 0 else { return false }
+            let overlap = outer.intersection(inner)
+            let overlapArea = overlap.width * overlap.height
+            let outerArea = outer.width * outer.height
+            // inner must be (almost) fully inside outer, and outer must be bigger
+            return overlapArea / innerArea > 0.95 && outerArea > innerArea * 1.05
         }
 
-        for child in children {
-            findElectronScrollPanels(in: child, windowFrame: windowFrame, depth: depth + 1, results: &results)
+        return panels.filter { panel in
+            let containedSubPanels = panels.filter { contains(panel.frame, $0.frame) }
+            // Keep leaves and single-child wrappers; drop multi-panel containers.
+            return containedSubPanels.count < 2
         }
     }
 
