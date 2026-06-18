@@ -8,8 +8,11 @@
 # bundle that satisfies those requirements.
 #
 # Usage:
-#   ./package.sh                 # release build, ad-hoc signed, output in ./dist
+#   ./package.sh                 # release, universal (arm64 + x86_64), ad-hoc
+#                                # signed, output in ./dist
 #   ./package.sh --debug         # use the debug build instead of release
+#   ./package.sh --native        # build only for this Mac's arch (faster, for
+#                                # local dev — won't run natively on the other arch)
 #   CODESIGN_ID="Developer ID Application: You (TEAMID)" ./package.sh
 #                                # sign with a real identity (needed for
 #                                # distribution; ad-hoc is fine for local use)
@@ -23,16 +26,30 @@ BUILD_NUMBER="1"
 MIN_MACOS="13.0"
 
 CONFIG="release"
-if [[ "${1:-}" == "--debug" ]]; then
-    CONFIG="debug"
-fi
+UNIVERSAL=1
+for arg in "$@"; do
+    case "$arg" in
+        --debug)  CONFIG="debug" ;;
+        --native) UNIVERSAL=0 ;;
+        *) echo "warning: ignoring unknown option '$arg'" >&2 ;;
+    esac
+done
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SIGN_ID="${CODESIGN_ID:--}"   # default to ad-hoc signing
 
-echo "==> Building $APP_NAME ($CONFIG)…"
-swift build -c "$CONFIG"
-BIN_DIR="$(swift build -c "$CONFIG" --show-bin-path)"
+# Build universal (arm64 + x86_64) by default so the .app runs natively on both
+# Apple Silicon and Intel Macs. --native drops the cross-arch slice for faster
+# local dev builds.
+BUILD_FLAGS=(-c "$CONFIG")
+if [[ "$UNIVERSAL" == "1" ]]; then
+    BUILD_FLAGS+=(--arch arm64 --arch x86_64)
+    echo "==> Building $APP_NAME ($CONFIG, universal: arm64 + x86_64)…"
+else
+    echo "==> Building $APP_NAME ($CONFIG, native arch only)…"
+fi
+swift build "${BUILD_FLAGS[@]}"
+BIN_DIR="$(swift build "${BUILD_FLAGS[@]}" --show-bin-path)"
 EXECUTABLE="$BIN_DIR/$APP_NAME"
 
 if [[ ! -x "$EXECUTABLE" ]]; then
@@ -93,6 +110,7 @@ codesign --verify --verbose "$APP_DIR"
 
 echo ""
 echo "✅ Built $APP_DIR"
+echo "   Architectures: $(lipo -archs "$MACOS_DIR/$APP_NAME")"
 echo ""
 echo "Next steps to enable Launch at Login:"
 echo "  • Run it:        open \"$APP_DIR\""
