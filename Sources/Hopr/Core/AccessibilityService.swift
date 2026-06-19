@@ -390,7 +390,7 @@ final class AccessibilityService {
     private func queryBrowserViaAppleScript(bundleID: String, webAreaFrame: CGRect) -> [UIElement] {
         let js = """
         (function() {
-          var elements = document.querySelectorAll('a, button, input, select, textarea, [role=\"button\"], [role=\"link\"], [role=\"checkbox\"], [role=\"radio\"], [onclick]');
+          var elements = document.querySelectorAll('a, button, input, select, textarea, [contenteditable=\"true\"], [contenteditable=\"\"], [contenteditable=\"plaintext-only\"], [role=\"button\"], [role=\"link\"], [role=\"checkbox\"], [role=\"radio\"], [role=\"textbox\"], [role=\"searchbox\"], [role=\"combobox\"], [onclick]');
           var results = [];
           var viewportWidth = window.innerWidth;
           var viewportHeight = window.innerHeight;
@@ -401,22 +401,37 @@ final class AccessibilityService {
             var rect = el.getBoundingClientRect();
             if (rect.width < 3 || rect.height < 3) continue;
             if (rect.bottom < 0 || rect.right < 0 || rect.top > viewportHeight || rect.left > viewportWidth) continue;
-            var role = el.getAttribute('role') || el.tagName.toLowerCase();
-            if (role === 'a') role = 'AXLink';
-            else if (role === 'button') role = 'AXButton';
-            else if (role === 'input') {
-              var type = el.getAttribute('type') || 'text';
+            var tag = el.tagName.toLowerCase();
+            var ariaRole = el.getAttribute('role');
+            var role;
+            // Editable HTML regions: contenteditable hosts (Gmail/Notion/Slack rich
+            // editors) and ARIA textbox/searchbox roles count as text inputs for edit mode.
+            if (el.isContentEditable) {
+              // Only label the top-level editable host, not every nested editable block.
+              if (el.parentElement && el.parentElement.isContentEditable) continue;
+              role = (el.getAttribute('aria-multiline') === 'false') ? 'AXTextField' : 'AXTextArea';
+            }
+            else if (ariaRole === 'textbox') role = (el.getAttribute('aria-multiline') === 'true') ? 'AXTextArea' : 'AXTextField';
+            else if (ariaRole === 'searchbox') role = 'AXSearchField';
+            else if (ariaRole === 'combobox') role = 'AXComboBox';
+            else if (tag === 'input') {
+              var type = (el.getAttribute('type') || 'text').toLowerCase();
               if (type === 'checkbox') role = 'AXCheckBox';
               else if (type === 'radio') role = 'AXRadioButton';
+              else if (type === 'search') role = 'AXSearchField';
+              else if (type === 'hidden') continue;
+              else if (type === 'button' || type === 'submit' || type === 'reset' || type === 'image' || type === 'file' || type === 'color') role = 'AXButton';
               else role = 'AXTextField';
             }
-            else if (role === 'textarea') role = 'AXTextArea';
-            else if (role === 'select') role = 'AXPopUpButton';
-            else if (role.indexOf('button') !== -1) role = 'AXButton';
-            else if (role.indexOf('link') !== -1) role = 'AXLink';
+            else if (tag === 'textarea') role = 'AXTextArea';
+            else if (tag === 'select') role = 'AXPopUpButton';
+            else if (tag === 'a') role = 'AXLink';
+            else if (tag === 'button') role = 'AXButton';
+            else if (ariaRole === 'button') role = 'AXButton';
+            else if (ariaRole === 'link') role = 'AXLink';
             else role = 'AXButton';
-            var title = el.getAttribute('aria-label') || el.innerText || el.value || el.placeholder || el.title || '';
-            title = title.trim();
+            var title = el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.value || el.innerText || el.title || '';
+            title = title.trim().slice(0, 100);
             results.push({
               left: rect.left,
               top: rect.top,
@@ -520,6 +535,76 @@ final class AccessibilityService {
         
         Log.debug("Browser elements fetched via AppleScript: \(uiElements.count)")
         return uiElements
+    }
+
+    // MARK: - Browser Scroll Areas (geometric, no JS permission)
+
+    /// Detect scroll panels in a browser. Chromium exposes NO scroll metadata in its AX
+    /// tree (no AXScrollArea/AXScrollBar/scroll-bar attributes — verified), so we detect
+    /// distinct scrollable regions geometrically from the AXGroup layout, exactly like the
+    /// Electron path (Chrome and Electron are both Chromium). Each web area is also added
+    /// as the page-level scroll target. Needs no special permission.
+    private func extractBrowserScrollAreas(appElement: AXUIElement) -> [ScrollableArea] {
+        var targetWindows: [AXUIElement] = []
+        if let frontWindow = getFrontmostWindow(from: appElement) {
+            targetWindows = [frontWindow]
+        } else if let windows = getAllWindows(from: appElement) {
+            targetWindows = windows
+        }
+
+        var pageAreas: [ScrollableArea] = []
+        var subPanels: [ScrollableArea] = []
+        for window in targetWindows {
+            for webArea in findWebAreas(in: window) {
+                var pageFrame = CGRect.zero
+                var posRef: CFTypeRef?
+                var sizeRef: CFTypeRef?
+                AXUIElementCopyAttributeValue(webArea, kAXPositionAttribute as CFString, &posRef)
+                AXUIElementCopyAttributeValue(webArea, kAXSizeAttribute as CFString, &sizeRef)
+                if let p = axPointValue(posRef) { pageFrame.origin = p }
+                if let s = axSizeValue(sizeRef) { pageFrame.size = s }
+                guard pageFrame.width > 50, pageFrame.height > 50 else { continue }
+
+                // Page-level scroll (the viewport itself) — always kept.
+                pageAreas.append(ScrollableArea(element: webArea, frame: pageFrame))
+
+                // Candidate scrollable sub-panels (sidebars, lists, columns), detected the
+                // same way as Electron app panels using the web area as the bounding frame.
+                // Require meaningful HEIGHT (the vertical scroll axis) so headers / tab bars
+                // are dropped, but allow narrow tall columns (e.g. Discord's server-icon
+                // rail, ~72px wide) which are valid vertical scrollers.
+                var rawPanels: [ScrollableArea] = []
+                collectElectronScrollPanels(in: webArea, windowFrame: pageFrame, depth: 0, results: &rawPanels)
+                subPanels.append(contentsOf: reduceToLeafPanels(rawPanels).filter {
+                    $0.frame.height >= 150 && $0.frame.width >= 48
+                })
+            }
+        }
+
+        // Web pages nest many overlapping AXGroups of similar size (e.g. a video player's
+        // layers). Reduce the sub-panels to DISTINCT regions: largest first, dropping any
+        // that overlaps an already-kept panel by >50% of its own area. The page areas are
+        // excluded from this test (every sub-panel sits inside the page).
+        let distinctPanels = keepDistinctRegions(subPanels)
+        return pageAreas + distinctPanels
+    }
+
+    /// Keep largest-first, dropping any area that overlaps an already-kept one by more than
+    /// half of its own area. Yields non-overlapping distinct scroll regions.
+    private func keepDistinctRegions(_ areas: [ScrollableArea]) -> [ScrollableArea] {
+        let sorted = areas.sorted { ($0.frame.width * $0.frame.height) > ($1.frame.width * $1.frame.height) }
+        var kept: [ScrollableArea] = []
+        for area in sorted {
+            let selfArea = area.frame.width * area.frame.height
+            guard selfArea > 0 else { continue }
+            let overlapsKept = kept.contains { k in
+                let inter = k.frame.intersection(area.frame)
+                let interArea = max(0, inter.width) * max(0, inter.height)
+                return (interArea / selfArea) > 0.5
+            }
+            if !overlapsKept { kept.append(area) }
+        }
+        return kept
     }
 
     // MARK: - Search Predicate (Hopr-style fast discovery)
@@ -1051,9 +1136,10 @@ final class AccessibilityService {
         return areas.first?.element
     }
 
-    /// Find ALL scrollable areas — enable accessibility + traverse AX tree
-    func getAllScrollAreas() -> [ScrollableArea] {
-        guard let frontApp = NSWorkspace.shared.frontmostApplication else { return [] }
+    /// Find ALL scrollable areas — enable accessibility + traverse AX tree.
+    /// `app` defaults to the frontmost application (pass an explicit app for diagnostics).
+    func getAllScrollAreas(for app: NSRunningApplication? = nil) -> [ScrollableArea] {
+        guard let frontApp = app ?? NSWorkspace.shared.frontmostApplication else { return [] }
         let appElement = AXUIElementCreateApplication(frontApp.processIdentifier)
 
         // Electron apps require AXManualAccessibility (AXEnhancedUserInterface FAILS on Electron with error -25208)
@@ -1062,6 +1148,27 @@ final class AccessibilityService {
             AXUIElementSetAttributeValue(appElement, "AXManualAccessibility" as CFString, true as CFTypeRef)
         } else {
             AXUIElementSetAttributeValue(appElement, "AXEnhancedUserInterface" as CFString, true as CFTypeRef)
+        }
+
+        // Browsers: Chromium exposes NO scroll metadata in its AX tree (verified — zero
+        // AXScrollArea / AXScrollBar / scroll-bar attributes), so detect scroll panels
+        // GEOMETRICALLY from the AXGroup layout — the same approach used for Electron
+        // apps (which are also Chromium). Works without any special permission.
+        let scrollBundleID = frontApp.bundleIdentifier ?? ""
+        let isChromiumBrowser = scrollBundleID.contains("Chrome") || scrollBundleID.contains("Chromium")
+            || scrollBundleID.contains("Brave") || scrollBundleID.contains("Edge") || scrollBundleID.contains("Vivaldi")
+        let isBrowser = scrollBundleID.contains("Safari") || isChromiumBrowser
+        if isBrowser {
+            // Chromium builds its accessibility tree lazily; nudge it to expose web content.
+            if isChromiumBrowser {
+                AXUIElementSetAttributeValue(appElement, "AXManualAccessibility" as CFString, true as CFTypeRef)
+            }
+            let browserAreas = extractBrowserScrollAreas(appElement: appElement)
+            if !browserAreas.isEmpty {
+                Log.debug("getAllScrollAreas (browser): \(browserAreas.count) scroll areas")
+                return browserAreas
+            }
+            // Otherwise fall through to the generic traversal below (still catches the web area).
         }
 
         // Scan only the frontmost window of the frontmost app to prevent clutter
