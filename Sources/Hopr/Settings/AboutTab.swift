@@ -52,7 +52,7 @@ struct AboutTab: View {
                 VStack(spacing: 4) {
                     Text("Hopr")
                         .font(.system(size: 20, weight: .bold))
-                    Text("Version 1.0.0")
+                    Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.2.0")")
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
                     Text("Keyboard-driven navigation for macOS")

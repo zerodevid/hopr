@@ -13,29 +13,91 @@ struct UIElement: Identifiable {
 
     var label: String = ""
 
+    /// Interactive control roles whose label may live in a child (icon buttons, cells,
+    /// menu items…). Only these pay the descendant-title search; containers/text don't.
+    private static let rolesNeedingChildTitle: Set<String> = [
+        "AXButton", "AXLink", "AXCheckBox", "AXRadioButton", "AXMenuItem", "AXMenuBarItem",
+        "AXPopUpButton", "AXComboBox", "AXCell", "AXRow", "AXTab", "AXDisclosureTriangle",
+    ]
+
+    /// Attributes fetched in ONE batched IPC round-trip (was 8 separate calls per node —
+    /// the dominant cost when traversing large Electron/web trees).
+    private static let fromAttrs: CFArray = [
+        kAXRoleAttribute as String,
+        kAXTitleAttribute as String,
+        kAXDescriptionAttribute as String,
+        kAXValueAttribute as String,
+        kAXHelpAttribute as String,
+        kAXPositionAttribute as String,
+        kAXSizeAttribute as String,
+        kAXEnabledAttribute as String,
+    ] as CFArray
+
+    /// Same 8 attributes as `fromAttrs` plus both children lists — lets `traverse` get the
+    /// element AND its children in ONE IPC instead of three.
+    private static let fromWithChildrenAttrs: CFArray = [
+        kAXRoleAttribute as String,
+        kAXTitleAttribute as String,
+        kAXDescriptionAttribute as String,
+        kAXValueAttribute as String,
+        kAXHelpAttribute as String,
+        kAXPositionAttribute as String,
+        kAXSizeAttribute as String,
+        kAXEnabledAttribute as String,
+        "AXChildrenInNavigationOrder",
+        kAXChildrenAttribute as String,
+    ] as CFArray
+
     static func from(_ element: AXUIElement) -> UIElement? {
-        guard let role = getStringAttribute(element, kAXRoleAttribute) else { return nil }
+        var valuesRef: CFArray?
+        guard AXUIElementCopyMultipleAttributeValues(element, fromAttrs, AXCopyMultipleAttributeOptions(rawValue: 0), &valuesRef) == .success,
+              let v = valuesRef as? [AnyObject], v.count == 8 else { return nil }
+        return parse(element, v)
+    }
 
-        var t = getStringAttribute(element, kAXTitleAttribute) ?? ""
-        if t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            t = getStringAttribute(element, kAXDescriptionAttribute) ?? ""
-        }
-        if t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            t = getStringAttribute(element, kAXValueAttribute) ?? ""
-        }
-        if t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            t = getStringAttribute(element, kAXHelpAttribute) ?? ""
-        }
-        if t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            t = findTitleInChildren(element) ?? ""
-        }
-        let title = t
+    /// Element + children in a single batched IPC (the hot path in `traverse`). The
+    /// element may be nil (no role/frame) while children are still returned, so traversal
+    /// can keep descending through structural/position-less nodes like the old code did.
+    static func fromWithChildren(_ element: AXUIElement) -> (element: UIElement?, children: [AXUIElement]) {
+        var valuesRef: CFArray?
+        guard AXUIElementCopyMultipleAttributeValues(element, fromWithChildrenAttrs, AXCopyMultipleAttributeOptions(rawValue: 0), &valuesRef) == .success,
+              let v = valuesRef as? [AnyObject], v.count == 10 else { return (nil, []) }
+        // Prefer navigation order; fall back to plain children.
+        let children = (v[8] as? [AXUIElement]) ?? (v[9] as? [AXUIElement]) ?? []
+        return (parse(element, v), children)
+    }
 
-        guard let position = getPointAttribute(element, kAXPositionAttribute),
-              let size = getSizeAttribute(element, kAXSizeAttribute) else { return nil }
+    /// Build a UIElement from the first 8 batched attribute values (role, title sources,
+    /// position, size, enabled).
+    private static func parse(_ element: AXUIElement, _ v: [AnyObject]) -> UIElement? {
+        guard let role = v[0] as? String else { return nil }
 
-        let frame = CGRect(origin: position, size: size)
-        let enabled = getBoolAttribute(element, kAXEnabledAttribute) ?? true
+        // title: title → description → value(string) → help → (rare) children scan.
+        func nonEmpty(_ i: Int) -> String? {
+            guard let s = v[i] as? String, !s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+            return s
+        }
+        var title = nonEmpty(1) ?? nonEmpty(2) ?? nonEmpty(3) ?? nonEmpty(4) ?? ""
+        // Deriving a label from descendants is only worth its cost for interactive controls
+        // (an icon button whose text is a child, a list cell, etc.). For the title-less
+        // AXGroup / AXStaticText divs that make up the bulk of a web tree it's pure waste —
+        // running it for every such node was the O(n²) blowup. Skip them.
+        if title.isEmpty && rolesNeedingChildTitle.contains(role) {
+            title = findTitleInChildren(element) ?? ""
+        }
+
+        // position + size are AXValue refs (or an axError placeholder if missing).
+        var point = CGPoint.zero
+        var size = CGSize.zero
+        let posVal = v[5] as CFTypeRef
+        let sizeVal = v[6] as CFTypeRef
+        guard CFGetTypeID(posVal) == AXValueGetTypeID(),
+              AXValueGetValue(unsafeBitCast(posVal, to: AXValue.self), .cgPoint, &point),
+              CFGetTypeID(sizeVal) == AXValueGetTypeID(),
+              AXValueGetValue(unsafeBitCast(sizeVal, to: AXValue.self), .cgSize, &size) else { return nil }
+
+        let frame = CGRect(origin: point, size: size)
+        let enabled = (v[7] as? Bool) ?? true
 
         return UIElement(element: element, role: role, title: title, frame: frame, enabled: enabled)
     }
@@ -325,13 +387,17 @@ private func findTitleInChildren(_ element: AXUIElement) -> String? {
         }
     }
 
-    // 2. Breadth-First Search (BFS) to find the closest descendant with a name/title
+    // 2. Breadth-First Search (BFS) to find the closest descendant with a name/title.
+    // A label always lives a level or two down, so keep this shallow and bounded — an
+    // unbounded depth-15 BFS run for every empty-title node turns traversal into an
+    // O(n²) blowup on large web/Electron trees (seconds for VSCode).
     var queueWithDepth: [(element: AXUIElement, depth: Int)] = [(element, 0)]
     var visited = Set<CFHashCode>()
     var index = 0
-    let maxDepth = 15
+    let maxDepth = 3
+    let maxVisited = 24
 
-    while index < queueWithDepth.count {
+    while index < queueWithDepth.count && visited.count < maxVisited {
         let current = queueWithDepth[index]
         index += 1
 

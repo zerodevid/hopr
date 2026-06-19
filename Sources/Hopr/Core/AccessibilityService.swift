@@ -208,7 +208,8 @@ final class AccessibilityService {
         AXUIElementSetMessagingTimeout(appElement, 2.0)
 
         // Electron apps require AXManualAccessibility
-        if isElectronApp(frontApp) {
+        let isElectron = isElectronApp(frontApp)
+        if isElectron {
             AXUIElementSetAttributeValue(appElement, "AXManualAccessibility" as CFString, true as CFTypeRef)
         } else {
             AXUIElementSetAttributeValue(appElement, "AXEnhancedUserInterface" as CFString, true as CFTypeRef)
@@ -231,7 +232,7 @@ final class AccessibilityService {
         ]
 
         let searchResult = searchViaPredicate(appElement: appElement, searchKeys: searchKeys)
-        
+
         if let browserElements = browserElements {
             // Merge native window chrome elements (tabs, toolbar buttons) with HTML viewport elements
             let bundleID = frontApp.bundleIdentifier ?? ""
@@ -258,16 +259,19 @@ final class AccessibilityService {
                         allElements.append(contentsOf: elements)
                     }
                 }
-            } else {
-                // Predicate search worked for native UI, but we must also scan any AXWebArea / AXWebDocument
-                // elements to make sure web content (HTML links, buttons, fields) is fully covered.
+            } else if !isElectron {
+                // Predicate search worked for native UI, but a native app may embed a web
+                // view whose HTML content the predicate misses — scan those AXWebAreas too.
+                // Skipped for Electron apps: there the recursive predicate already covers the
+                // entire (web) UI, so a full web-area traversal is pure redundant cost (it
+                // was turning VSCode hint/search scans into multi-second operations).
                 var targetWindows: [AXUIElement] = []
                 if let frontWindow = getFrontmostWindow(from: appElement) {
                     targetWindows = [frontWindow]
                 } else if let windows = getAllWindows(from: appElement) {
                     targetWindows = windows
                 }
-                
+
                 var webElements: [UIElement] = []
                 for window in targetWindows {
                     let webAreas = findWebAreas(in: window)
@@ -284,7 +288,7 @@ final class AccessibilityService {
         let processed = postProcess(allElements)
 
         cacheQueue.sync {
-            cacheMap[currentPID] = CacheEntry(elements: processed, timestamp: now)
+            cacheMap[currentPID] = CacheEntry(elements: processed, timestamp: CACurrentMediaTime())
         }
         return processed
     }
@@ -360,7 +364,7 @@ final class AccessibilityService {
         }
 
         cacheQueue.sync {
-            textElementCacheMap[currentPID] = CacheEntry(elements: unique, timestamp: now)
+            textElementCacheMap[currentPID] = CacheEntry(elements: unique, timestamp: CACurrentMediaTime())
         }
         return unique
     }
@@ -935,7 +939,11 @@ final class AccessibilityService {
         var currentParentRowId = parentRowId
         var nextInListOrRow = inListOrRow
         var isWebArea = false
-        if var uiElement = UIElement.from(element) {
+
+        // One batched IPC fetches the element AND its children (was three calls per node —
+        // the dominant cost of traversing huge Electron trees).
+        let node = UIElement.fromWithChildren(element)
+        if var uiElement = node.element {
             // Visibility prune: an element with a real frame fully outside the visible clip
             // region can't be clicked — skip it and its whole subtree.
             let f = uiElement.frame
@@ -964,26 +972,21 @@ final class AccessibilityService {
             return
         }
 
-        var children: [AXUIElement] = []
-
-        // 1. Try AXChildrenInNavigationOrder
-        var navRef: CFTypeRef?
-        if AXUIElementCopyAttributeValue(element, "AXChildrenInNavigationOrder" as CFString, &navRef) == .success,
-           let navChildren = navRef as? [AXUIElement] {
-            children.append(contentsOf: navChildren)
+        // For tables/outlines/lists, recurse only into the rows currently ON SCREEN
+        // (AXVisibleRows) — off-screen rows aren't clickable, and a 10k-row Finder folder
+        // would otherwise cost the same as walking the whole list (seconds).
+        let role = node.element?.role
+        let childrenToRecurse: [AXUIElement]
+        if role == "AXTable" || role == "AXOutline" || role == "AXList" {
+            childrenToRecurse = visibleRowsOrChildren(element)
+        } else {
+            childrenToRecurse = node.children
         }
 
-        // 2. Try kAXChildrenAttribute
-        var normalRef: CFTypeRef?
-        if AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &normalRef) == .success,
-           let normalChildren = normalRef as? [AXUIElement] {
-            children.append(contentsOf: normalChildren)
-        }
-
-        // Deduplicate children using CFHash for performance
+        // Deduplicate children using CFHash (navigation-order + plain children can overlap).
         var uniqueChildren: [AXUIElement] = []
         var seenHashes = Set<CFHashCode>()
-        for child in children {
+        for child in childrenToRecurse {
             let hash = CFHash(child)
             if !seenHashes.contains(hash) {
                 seenHashes.insert(hash)
@@ -1245,7 +1248,7 @@ final class AccessibilityService {
             let browserAreas = extractBrowserScrollAreas(appElement: appElement)
             if !browserAreas.isEmpty {
                 Log.debug("getAllScrollAreas (browser): \(browserAreas.count) scroll areas")
-                cacheQueue.sync { scrollAreaCacheMap[currentPID] = ScrollCacheEntry(areas: browserAreas, timestamp: now) }
+                cacheQueue.sync { scrollAreaCacheMap[currentPID] = ScrollCacheEntry(areas: browserAreas, timestamp: CACurrentMediaTime()) }
                 return browserAreas
             }
             // Otherwise fall through to the generic traversal below (still catches the web area).
@@ -1353,112 +1356,73 @@ final class AccessibilityService {
             Log.debug("  Result[\(i)]: \(role) frame=\(Int(area.frame.width))×\(Int(area.frame.height)) @ (\(Int(area.frame.origin.x)),\(Int(area.frame.origin.y)))")
         }
 
-        cacheQueue.sync { scrollAreaCacheMap[currentPID] = ScrollCacheEntry(areas: result, timestamp: now) }
+        cacheQueue.sync { scrollAreaCacheMap[currentPID] = ScrollCacheEntry(areas: result, timestamp: CACurrentMediaTime()) }
         return result
     }
 
     // MARK: - Scroll Area Search Predicate
 
-    /// Find distinct scrollable sub-panels in Electron apps (VSCode, etc.)
-    /// Electron doesn't expose AXScrollArea — instead, panels are AXGroup elements
-    /// with distinct non-overlapping frames (sidebar, editor, terminal, panel).
-    private func isPanelElement(_ element: AXUIElement, windowFrame: CGRect) -> Bool {
-        var roleRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRef) == .success,
-              let role = roleRef as? String else { return false }
+    /// Attributes fetched per node in ONE IPC round-trip (role + geometry + children).
+    /// Batching with AXUIElementCopyMultipleAttributeValues instead of 5–7 separate
+    /// AXUIElementCopyAttributeValue calls is the main scroll-scan speedup.
+    private static let scrollNodeAttrs: CFArray = [
+        kAXRoleAttribute as String,
+        kAXPositionAttribute as String,
+        kAXSizeAttribute as String,
+        "AXChildrenInNavigationOrder",
+        kAXChildrenAttribute as String,
+    ] as CFArray
 
-        var sizeRef: CFTypeRef?
-        AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &sizeRef)
+    /// Roles that can't contain a scroll region — don't descend into them. These (text
+    /// runs, buttons, links, …) are the bulk of an Electron/web tree, so pruning them is
+    /// a big traversal win (VSCode's editor is mostly AXStaticText tokens).
+    private let scrollLeafRoles: Set<String> = [
+        "AXStaticText", "AXButton", "AXLink", "AXImage", "AXCheckBox", "AXRadioButton",
+        "AXMenuItem", "AXMenuButton", "AXPopUpButton", "AXSlider", "AXTextField",
+        "AXDisclosureTriangle", "AXValueIndicator", "AXProgressIndicator",
+    ]
+
+    /// One batched fetch: role, frame, and children (navigation order preferred).
+    private func scrollNode(_ element: AXUIElement) -> (role: String, frame: CGRect, children: [AXUIElement])? {
+        var valuesRef: CFArray?
+        guard AXUIElementCopyMultipleAttributeValues(element, AccessibilityService.scrollNodeAttrs, AXCopyMultipleAttributeOptions(rawValue: 0), &valuesRef) == .success,
+              let values = valuesRef as? [AnyObject], values.count == 5,
+              let role = values[0] as? String else { return nil }
+
+        var point = CGPoint.zero
         var size = CGSize.zero
-        if let s = axSizeValue(sizeRef) { size = s }
-
-        let panelRoles: Set<String> = ["AXGroup", "AXScrollArea", "AXTextArea", "AXWebArea", "AXList", "AXTable", "AXOutline"]
-
-        // Check if it's a recognized panel role and has reasonable size
-        guard panelRoles.contains(role) && size.width > 60 && size.height > 60 else {
-            Log.debug("    isPanelElement(\(role)): FAIL - role not in \(panelRoles) or size too small (\(Int(size.width))×\(Int(size.height)))")
-            return false
+        let posVal = values[1] as CFTypeRef
+        if CFGetTypeID(posVal) == AXValueGetTypeID() {
+            AXValueGetValue(unsafeBitCast(posVal, to: AXValue.self), .cgPoint, &point)
         }
+        let sizeVal = values[2] as CFTypeRef
+        if CFGetTypeID(sizeVal) == AXValueGetTypeID() {
+            AXValueGetValue(unsafeBitCast(sizeVal, to: AXValue.self), .cgSize, &size)
+        }
+        let children = (values[3] as? [AXUIElement]) ?? (values[4] as? [AXUIElement]) ?? []
+        return (role, CGRect(origin: point, size: size), children)
+    }
 
-        // Allow panels that are smaller than the window (sidebar, bottom panels, etc)
+    private static let scrollPanelRoles: Set<String> = ["AXGroup", "AXScrollArea", "AXTextArea", "AXWebArea", "AXList", "AXTable", "AXOutline"]
+
+    /// Pure geometric panel test (no IPC) — distinct scrollable region in the window.
+    private func isPanel(role: String, size: CGSize, windowFrame: CGRect) -> Bool {
+        guard AccessibilityService.scrollPanelRoles.contains(role), size.width > 60, size.height > 60 else { return false }
         let widthRatio = size.width / max(windowFrame.width, 1)
         let heightRatio = size.height / max(windowFrame.height, 1)
-
         let isSidebar = widthRatio < 0.4 && heightRatio > 0.5
         let isBottomPanel = widthRatio > 0.5 && heightRatio < 0.4
         let isMainArea = widthRatio > 0.5 && heightRatio > 0.5
-        // Medium panel: a meaningful region in both dimensions that isn't a full sidebar
-        // or main area — e.g. the Claude conversation pane or a split editor column.
-        // The >60px size gate above already excludes small widgets.
+        // Medium panel: meaningful in both dimensions (e.g. a chat pane / split column).
         let isMediumPanel = widthRatio >= 0.2 && heightRatio >= 0.2
-
-        let result = isSidebar || isBottomPanel || isMainArea || isMediumPanel
-        if result {
-            let type = isSidebar ? "SIDEBAR" : (isBottomPanel ? "BOTTOM" : (isMainArea ? "MAIN" : "MEDIUM"))
-            Log.debug("    isPanelElement(\(role)): YES (\(type)) w=\(String(format: "%.1f", widthRatio))% h=\(String(format: "%.1f", heightRatio * 100))%")
-        } else {
-            Log.debug("    isPanelElement(\(role)): NO - ratios w=\(String(format: "%.1f", widthRatio * 100))% h=\(String(format: "%.1f", heightRatio * 100))%")
-        }
-        return result
+        return isSidebar || isBottomPanel || isMainArea || isMediumPanel
     }
 
-    /// Check if element is likely scrollable using multiple indicators
-    private func isScrollablePanel(_ element: AXUIElement) -> Bool {
-        var roleRef: CFTypeRef?
-        AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRef)
-        let role = roleRef as? String ?? "unknown"
-
-        // Check role FIRST - some roles are inherently scrollable/are common panel types
-        // AXGroup is used for VSCode panels (sidebar, editor, terminal)
-        // AXOutline for tree views (GRAPH panel)
-        // etc.
-        let inherentlyScrollableRoles: Set<String> = ["AXScrollArea", "AXWebArea", "AXWebDocument", "AXList", "AXTable", "AXOutline"]
-        let panelRoles: Set<String> = ["AXGroup"]  // AXGroup panels are typically scrollable in VSCode
-
-        if inherentlyScrollableRoles.contains(role) {
-            Log.debug("      isScrollable(\(role)): YES - inherent scrollable role")
-            return true
-        }
-
-        // Check explicit scroll bars (most reliable for detecting actual scrollability)
-        var verticalRef: CFTypeRef?
-        var horizontalRef: CFTypeRef?
-        AXUIElementCopyAttributeValue(element, kAXVerticalScrollBarAttribute as CFString, &verticalRef)
-        AXUIElementCopyAttributeValue(element, kAXHorizontalScrollBarAttribute as CFString, &horizontalRef)
-        if verticalRef != nil || horizontalRef != nil {
-            Log.debug("      isScrollable(\(role)): YES - has scroll bar")
-            return true
-        }
-
-        // Check for AXHasScrollBar attribute (VSCode uses this)
-        var hasScrollRef: CFTypeRef?
-        if AXUIElementCopyAttributeValue(element, "AXHasScrollBar" as CFString, &hasScrollRef) == .success {
-            Log.debug("      isScrollable(\(role)): YES - AXHasScrollBar")
-            return true
-        }
-
-        // For panel roles (AXGroup), be more lenient - assume scrollable if it looks like a panel
-        if panelRoles.contains(role) {
-            Log.debug("      isScrollable(\(role)): YES - panel role (assume scrollable)")
-            return true
-        }
-
-        // Last resort: check if has content that could be scrolled (AXValue)
-        var valueRef: CFTypeRef?
-        if AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &valueRef) == .success {
-            Log.debug("      isScrollable(\(role)): YES - has AXValue")
-            return valueRef != nil
-        }
-
-        Log.debug("      isScrollable(\(role)): NO")
-        return false
-    }
-
-    /// Collect EVERY scrollable panel in an Electron app (VSCode, etc.).
-    /// Electron doesn't expose AXScrollArea — panels are AXGroup elements with distinct
-    /// frames (sidebar, editor, terminal). Unlike the old approach, this never stops
-    /// descending early, so panels in sibling subtrees (sidebar AND editor AND terminal)
-    /// are all found. `reduceToLeafPanels` then picks the distinct regions.
+    /// Collect EVERY scrollable panel in an Electron app / web view. All `scrollPanelRoles`
+    /// are treated as scrollable (AXGroup panels are assumed scrollable, the rest are
+    /// inherently so), so panel-hood is decided purely from role+geometry — no extra IPC.
+    /// Uses one batched fetch per node and prunes leaf-role subtrees for speed.
+    /// `reduceToLeafPanels` then picks the distinct regions.
     private func collectElectronScrollPanels(
         in element: AXUIElement,
         windowFrame: CGRect,
@@ -1467,26 +1431,20 @@ final class AccessibilityService {
     ) {
         // Electron trees are deep; we need enough depth to reach the panel level
         guard depth < 30 else { return }
+        guard let node = scrollNode(element) else { return }
 
-        if isPanelElement(element, windowFrame: windowFrame) && isScrollablePanel(element) {
-            var posRef: CFTypeRef?
-            var sizeRef: CFTypeRef?
-            AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &posRef)
-            AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &sizeRef)
-            var point = CGPoint.zero
-            var size = CGSize.zero
-            if let p = axPointValue(posRef) { point = p }
-            if let s = axSizeValue(sizeRef) { size = s }
-            results.append(ScrollableArea(element: element, frame: CGRect(origin: point, size: size)))
+        if isPanel(role: node.role, size: node.frame.size, windowFrame: windowFrame) {
+            results.append(ScrollableArea(element: element, frame: node.frame))
         }
 
-        var childrenRef: CFTypeRef?
-        if AXUIElementCopyAttributeValue(element, "AXChildrenInNavigationOrder" as CFString, &childrenRef) != .success {
-            AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenRef)
-        }
-        let children = childrenRef as? [AXUIElement] ?? []
+        // Prune by size: a node ≤60px in either dimension can't be a panel, and since
+        // children are spatially bounded by their parent, none of its descendants can be
+        // either. This skips the bulk of the tree (editor lines, list rows, toolbar items).
+        if node.frame.width <= 60 || node.frame.height <= 60 { return }
+        // Likewise, leaf roles can't contain a scroll region.
+        if scrollLeafRoles.contains(node.role) { return }
 
-        for child in children {
+        for child in node.children {
             collectElectronScrollPanels(in: child, windowFrame: windowFrame, depth: depth + 1, results: &results)
         }
     }
