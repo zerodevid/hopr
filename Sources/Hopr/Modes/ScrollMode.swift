@@ -12,6 +12,9 @@ final class ScrollMode: Mode {
     private var velocity = CGPoint.zero
     private var settings: AppSettings { AppSettings.shared }
     private var originalMousePosition: CGPoint?
+    private var isActive = false
+
+    private static let scanQueue = DispatchQueue(label: "com.hopr.scroll-scan", qos: .userInitiated)
 
     private enum ScrollPhase {
         case selecting
@@ -19,27 +22,50 @@ final class ScrollMode: Mode {
     }
 
     func activate() {
+        isActive = true
         // Save current mouse position
         originalMousePosition = CGEvent(source: nil)?.location
-
-        scrollAreas = AccessibilityService.shared.getAllScrollAreas()
-        let showNumbers = AppSettings.shared.showScrollAreaNumbers
-        for i in 0..<scrollAreas.count {
-            // Display number only when setting is on; key selection uses position index internally
-            scrollAreas[i].number = showNumbers ? "\(i + 1)" : ""
-        }
 
         phase = .selecting
         pressedKeys = []
         velocity = .zero
-        overlayController.showScrollAreaOverlays(for: scrollAreas)
-        Log.info("Scroll mode: found \(scrollAreas.count) scroll areas — press 1-\(scrollAreas.count) to select")
-        
+        scrollAreas = []
+        selectedArea = nil
+
         startPhysicsLoop()
         SoundManager.shared.playEnterMode()
+
+        // Scan the AX tree off the main thread so activation is never blocked by a slow app.
+        // Detection is fast now (~tens of ms), but this guarantees the UI can never freeze.
+        ScrollMode.scanQueue.async { [weak self] in
+            let areas = AccessibilityService.shared.getAllScrollAreas()
+
+            DispatchQueue.main.async {
+                guard let self = self, self.isActive, self.phase == .selecting else { return }
+
+                // Order boxes left-to-right, then top-to-bottom within the same column,
+                // so the numbers read in a natural order instead of detection order.
+                // The x tolerance groups boxes that share a column (their left edges line up).
+                var numbered = areas.sorted { a, b in
+                    if abs(a.frame.minX - b.frame.minX) > 30 {
+                        return a.frame.minX < b.frame.minX
+                    }
+                    return a.frame.minY < b.frame.minY
+                }
+                let showNumbers = AppSettings.shared.showScrollAreaNumbers
+                for i in 0..<numbered.count {
+                    // Number shown only when the setting is on; selection uses the index regardless.
+                    numbered[i].number = showNumbers ? "\(i + 1)" : ""
+                }
+                self.scrollAreas = numbered
+                self.overlayController.showScrollAreaOverlays(for: numbered)
+                Log.info("Scroll mode: found \(numbered.count) scroll areas — press 1-\(numbered.count) to select")
+            }
+        }
     }
 
     func deactivate() {
+        isActive = false
         stopPhysicsLoop()
         overlayController.dismissAll()
         scrollAreas = []
@@ -55,6 +81,15 @@ final class ScrollMode: Mode {
         }
 
         Log.info("Scroll mode deactivated")
+    }
+
+    /// Pre-scan scroll areas when the active app changes so the next activation shows its
+    /// overlays instantly — same app-switch prefetch Hint and Focus Text modes already do.
+    func prefetch(for app: NSRunningApplication? = nil) {
+        let targetApp = app ?? NSWorkspace.shared.frontmostApplication
+        ScrollMode.scanQueue.async {
+            _ = AccessibilityService.shared.getAllScrollAreas(for: targetApp)
+        }
     }
 
     func handleKeyPress(_ key: String, keyCode: UInt16, isRepeat: Bool, modifiers: KeyModifiers) -> Bool {

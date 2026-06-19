@@ -105,6 +105,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
             self?.hintMode.prefetch()
             self?.focusTextMode.prefetch()
+            self?.scrollMode.prefetch()
         }
 
         setupPrefetchTimer()
@@ -135,6 +136,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 if modeController.currentMode == .idle {
                     hintMode.prefetch(for: app)
                     focusTextMode.prefetch(for: app)
+                    scrollMode.prefetch(for: app)
                 }
                 return
             }
@@ -148,9 +150,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let app = notification.object as? NSRunningApplication {
             hintMode.prefetch(for: app)
             focusTextMode.prefetch(for: app)
+            scrollMode.prefetch(for: app)
         } else {
             hintMode.prefetch()
             focusTextMode.prefetch()
+            scrollMode.prefetch()
         }
     }
 

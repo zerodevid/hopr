@@ -41,6 +41,12 @@ final class AccessibilityService {
     }
     private var cacheMap: [pid_t: CacheEntry] = [:]
     private var textElementCacheMap: [pid_t: CacheEntry] = [:] // Separate cache for text-only elements
+
+    private struct ScrollCacheEntry {
+        let areas: [ScrollableArea]
+        let timestamp: CFTimeInterval
+    }
+    private var scrollAreaCacheMap: [pid_t: ScrollCacheEntry] = [:] // Cache for scroll areas (Scroll mode)
     private let cacheTTL: CFTimeInterval = 0.8 // seconds — shorter for snappier refresh
 
     private struct PrefetchedEntry {
@@ -91,10 +97,45 @@ final class AccessibilityService {
         return size
     }
 
-    private func isElectronApp(_ app: NSRunningApplication) -> Bool {
-        if let bundle = app.bundleIdentifier {
-            return electronBundlePrefixes.contains(where: { bundle.hasPrefix($0) })
+    /// Position + size of an element in AX (top-left origin) coordinates, or nil.
+    private func axFrame(_ element: AXUIElement) -> CGRect? {
+        var posRef: CFTypeRef?
+        var sizeRef: CFTypeRef?
+        AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &posRef)
+        AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &sizeRef)
+        guard let p = axPointValue(posRef), let s = axSizeValue(sizeRef) else { return nil }
+        return CGRect(origin: p, size: s)
+    }
+
+    /// Children in navigation order (Hopr technique), falling back to AXChildren.
+    private func axChildren(_ element: AXUIElement) -> [AXUIElement] {
+        var ref: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, "AXChildrenInNavigationOrder" as CFString, &ref) != .success {
+            AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &ref)
         }
+        return (ref as? [AXUIElement]) ?? []
+    }
+
+    /// For tables/outlines, return only the rows currently on screen (AXVisibleRows) so a
+    /// 10k-row table costs the same to scan as a 10-row one — the way Hopr/Vimac do it.
+    private func visibleRowsOrChildren(_ element: AXUIElement) -> [AXUIElement] {
+        var ref: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, "AXVisibleRows" as CFString, &ref) == .success,
+           let rows = ref as? [AXUIElement], !rows.isEmpty {
+            return rows
+        }
+        return axChildren(element)
+    }
+
+    private func isElectronApp(_ app: NSRunningApplication) -> Bool {
+        // Bundle-prefix match first (cheap, exact).
+        if let bundle = app.bundleIdentifier,
+           electronBundlePrefixes.contains(where: { bundle.hasPrefix($0) }) {
+            return true
+        }
+        // Fall through to a name heuristic — many Electron apps (e.g. Discord =
+        // com.hnc.Discord) have a bundle id that isn't in the prefix list. Without this
+        // they'd be misrouted to the native scan and miss their panels.
         let name = app.localizedName?.lowercased() ?? ""
         return name.contains("vscode") || name.contains("visual studio code")
             || name.contains("antigravity") || name.contains("cursor")
@@ -161,6 +202,10 @@ final class AccessibilityService {
 
         guard let frontApp = frontApp else { return [] }
         let appElement = AXUIElementCreateApplication(frontApp.processIdentifier)
+
+        // Bound every AX request so a wedged/slow app can't freeze the scan for the system
+        // default (6s). Normal calls return in microseconds; this only caps pathologies.
+        AXUIElementSetMessagingTimeout(appElement, 2.0)
 
         // Electron apps require AXManualAccessibility
         if isElectronApp(frontApp) {
@@ -262,6 +307,9 @@ final class AccessibilityService {
 
         guard let frontApp = frontApp else { return [] }
         let appElement = AXUIElementCreateApplication(frontApp.processIdentifier)
+
+        // Bound every AX request so a wedged/slow app can't freeze the scan (see above).
+        AXUIElementSetMessagingTimeout(appElement, 2.0)
 
         if isElectronApp(frontApp) {
             AXUIElementSetAttributeValue(appElement, "AXManualAccessibility" as CFString, true as CFTypeRef)
@@ -872,14 +920,28 @@ final class AccessibilityService {
         return nil
     }
 
-    private func traverse(element: AXUIElement, depth: Int, parentRowId: UUID?, inListOrRow: Bool, elements: inout [UIElement], skipWebAreas: Bool = false) {
+    private func traverse(element: AXUIElement, depth: Int, parentRowId: UUID?, inListOrRow: Bool, elements: inout [UIElement], skipWebAreas: Bool = false, clipBounds: CGRect = .null) {
         // Electron apps have very deep trees (often over 30 levels) — need enough depth to reach all elements
         guard depth < 45 else { return }
+
+        // At the root, clip descendants to the root's own frame (the window / web-area
+        // viewport) so off-screen and hidden panels are skipped instead of walked — the
+        // single biggest cost in deep Electron trees. (Hopr's clip-bounds technique.)
+        var clip = clipBounds
+        if depth == 0, clip.isNull, let rootFrame = axFrame(element), rootFrame.width > 0, rootFrame.height > 0 {
+            clip = rootFrame
+        }
 
         var currentParentRowId = parentRowId
         var nextInListOrRow = inListOrRow
         var isWebArea = false
         if var uiElement = UIElement.from(element) {
+            // Visibility prune: an element with a real frame fully outside the visible clip
+            // region can't be clicked — skip it and its whole subtree.
+            let f = uiElement.frame
+            if !clip.isNull, !clip.isEmpty, f.width > 0, f.height > 0, !f.intersects(clip) {
+                return
+            }
             uiElement.parentRowId = parentRowId
             if uiElement.role == "AXRow" || uiElement.role == "AXOutlineRow" {
                 currentParentRowId = uiElement.id
@@ -930,7 +992,7 @@ final class AccessibilityService {
         }
 
         for child in uniqueChildren {
-            traverse(element: child, depth: depth + 1, parentRowId: currentParentRowId, inListOrRow: nextInListOrRow, elements: &elements, skipWebAreas: skipWebAreas)
+            traverse(element: child, depth: depth + 1, parentRowId: currentParentRowId, inListOrRow: nextInListOrRow, elements: &elements, skipWebAreas: skipWebAreas, clipBounds: clip)
         }
     }
 
@@ -1140,7 +1202,24 @@ final class AccessibilityService {
     /// `app` defaults to the frontmost application (pass an explicit app for diagnostics).
     func getAllScrollAreas(for app: NSRunningApplication? = nil) -> [ScrollableArea] {
         guard let frontApp = app ?? NSWorkspace.shared.frontmostApplication else { return [] }
+        let currentPID = frontApp.processIdentifier
+        let now = CACurrentMediaTime()
+
+        // Return cached areas if fresh (same TTL as Hint/Search). Lets app-switch prefetch
+        // make Scroll-mode activation instant, and dedups rapid re-activations.
+        let cached: [ScrollableArea]? = cacheQueue.sync {
+            if let entry = scrollAreaCacheMap[currentPID], (now - entry.timestamp) < cacheTTL {
+                return entry.areas
+            }
+            return nil
+        }
+        if let cached = cached { return cached }
+
         let appElement = AXUIElementCreateApplication(frontApp.processIdentifier)
+
+        // Bound every AX request so a wedged/slow app can never freeze us for the system
+        // default (6s). Normal calls return in microseconds, so this only caps pathologies.
+        AXUIElementSetMessagingTimeout(appElement, 2.0)
 
         // Electron apps require AXManualAccessibility (AXEnhancedUserInterface FAILS on Electron with error -25208)
         let isElectron = isElectronApp(frontApp)
@@ -1166,6 +1245,7 @@ final class AccessibilityService {
             let browserAreas = extractBrowserScrollAreas(appElement: appElement)
             if !browserAreas.isEmpty {
                 Log.debug("getAllScrollAreas (browser): \(browserAreas.count) scroll areas")
+                cacheQueue.sync { scrollAreaCacheMap[currentPID] = ScrollCacheEntry(areas: browserAreas, timestamp: now) }
                 return browserAreas
             }
             // Otherwise fall through to the generic traversal below (still catches the web area).
@@ -1213,7 +1293,7 @@ final class AccessibilityService {
                 innerAreas = reduceToLeafPanels(rawPanels)
                 Log.debug("  Electron: \(rawPanels.count) raw panels → \(innerAreas.count) leaf regions")
             } else {
-                findScrollAreas(in: window, depth: 0, results: &innerAreas)
+                findScrollAreas(in: window, depth: 0, clipBounds: windowFrame, results: &innerAreas)
             }
 
             if !innerAreas.isEmpty {
@@ -1273,6 +1353,7 @@ final class AccessibilityService {
             Log.debug("  Result[\(i)]: \(role) frame=\(Int(area.frame.width))×\(Int(area.frame.height)) @ (\(Int(area.frame.origin.x)),\(Int(area.frame.origin.y)))")
         }
 
+        cacheQueue.sync { scrollAreaCacheMap[currentPID] = ScrollCacheEntry(areas: result, timestamp: now) }
         return result
     }
 
@@ -1466,14 +1547,38 @@ final class AccessibilityService {
         return areas
     }
 
-    private func findScrollAreas(in element: AXUIElement, depth: Int, results: inout [ScrollableArea]) {
-        guard depth < 15 else { return }
+    /// Roles whose subtrees never contain a scroll area. Descending into them is what made
+    /// detection take seconds: a single note's AXTextArea exposes hundreds of AXStaticText /
+    /// AXImage children, and a list exposes hundreds of AXRow / AXCell. Hopr/Vimac never
+    /// walk content like this — we mirror that by treating these as leaves.
+    private static let nonScrollableLeafRoles: Set<String> = [
+        "AXStaticText", "AXImage", "AXButton", "AXMenuButton", "AXMenuItem",
+        "AXCheckBox", "AXRadioButton", "AXPopUpButton", "AXSlider", "AXStepper",
+        "AXIncrementor", "AXValueIndicator", "AXScrollBar", "AXProgressIndicator",
+        "AXBusyIndicator", "AXDisclosureTriangle", "AXColorWell", "AXLink",
+        "AXCell", "AXRow", "AXColumn",
+    ]
+
+    private func findScrollAreas(in element: AXUIElement, depth: Int, clipBounds: CGRect, results: inout [ScrollableArea]) {
+        guard depth < 20 else { return }
 
         let role: String? = {
             var ref: CFTypeRef?
             guard AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &ref) == .success else { return nil }
             return ref as? String
         }()
+
+        // Prune: content/control leaves never hold scroll areas. (Biggest speedup.)
+        if let role, Self.nonScrollableLeafRoles.contains(role) { return }
+
+        // Resolve the frame once — used both for visibility pruning and to clip descendants.
+        let frame = axFrame(element)
+
+        // Visibility prune: skip anything scrolled fully out of the visible clip rect, and
+        // its whole subtree along with it (Hopr's clip-bounds technique).
+        if let frame, !clipBounds.isNull, !clipBounds.isEmpty, !frame.intersects(clipBounds) {
+            return
+        }
 
         // Handle WebArea specifically (Safari/Chrome web pages)
         if let role, (role == "AXWebArea" || role == "AXWebDocument") {
@@ -1485,6 +1590,12 @@ final class AccessibilityService {
             }
         }
 
+        // Descendants are clipped to this element's visible rect once we pass through it.
+        let childClip: CGRect = {
+            guard let frame else { return clipBounds }
+            return clipBounds.isNull ? frame : clipBounds.intersection(frame)
+        }()
+
         // Standard scroll areas
         if let role, (role == kAXScrollAreaRole as String || role == "AXScrollArea") {
             if let area = ScrollableArea.from(element) {
@@ -1495,42 +1606,39 @@ final class AccessibilityService {
         // VSCode/Electron: AXGroup with actual scroll bars
         if let role, role == "AXGroup" {
             // Only add if it actually has visible scroll bars AND reasonable size
-            var hasVerticalBar = false
-            var hasHorizontalBar = false
             var verticalRef: CFTypeRef?
             var horizontalRef: CFTypeRef?
-
             AXUIElementCopyAttributeValue(element, kAXVerticalScrollBarAttribute as CFString, &verticalRef)
             AXUIElementCopyAttributeValue(element, kAXHorizontalScrollBarAttribute as CFString, &horizontalRef)
-            hasVerticalBar = verticalRef != nil
-            hasHorizontalBar = horizontalRef != nil
-
-            if (hasVerticalBar || hasHorizontalBar), let area = ScrollableArea.from(element) {
+            if (verticalRef != nil || horizontalRef != nil), let area = ScrollableArea.from(element) {
                 if area.frame.width > 80 && area.frame.height > 80 {
                     results.append(area)
                 }
             }
         }
 
-        // Text areas only if they have multiple lines (i.e., scrollable content)
+        // Text areas: scrollable as a whole, but the typed text/images/attachments inside
+        // hold no scroll areas — capture and STOP. This is what made a long note in Notes
+        // take ~6s (it exposes hundreds of child elements here).
         if let role, role == "AXTextArea" {
-            if let area = ScrollableArea.from(element) {
-                // Filter out single-line text areas
-                if area.frame.height > 40 && area.frame.width > 100 {
-                    results.append(area)
-                }
+            if let area = ScrollableArea.from(element), area.frame.height > 40, area.frame.width > 100 {
+                results.append(area)
             }
+            return
         }
 
-        var childrenRef: CFTypeRef?
-        // Try AXChildrenInNavigationOrder first (Hopr technique), fallback to AXChildren
-        if AXUIElementCopyAttributeValue(element, "AXChildrenInNavigationOrder" as CFString, &childrenRef) != .success {
-            AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenRef)
+        // Lists/tables/outlines: the container itself sits inside a scroll area we already
+        // captured, and its rows are content — descend only into the VISIBLE rows so the
+        // cost is bounded by what's on screen, not the total row count.
+        if let role, (role == "AXTable" || role == "AXOutline" || role == "AXList") {
+            for child in visibleRowsOrChildren(element) {
+                findScrollAreas(in: child, depth: depth + 1, clipBounds: childClip, results: &results)
+            }
+            return
         }
-        guard let children = childrenRef as? [AXUIElement] else { return }
 
-        for child in children {
-            findScrollAreas(in: child, depth: depth + 1, results: &results)
+        for child in axChildren(element) {
+            findScrollAreas(in: child, depth: depth + 1, clipBounds: childClip, results: &results)
         }
     }
 
