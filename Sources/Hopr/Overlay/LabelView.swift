@@ -7,6 +7,51 @@ enum LabelPosition {
     case right  // pointer points left, label to the right of element
 }
 
+/// Memoized text/label measurement for hint bubbles.
+///
+/// `NSString.size(withAttributes:)` runs a full text-layout pass. It was being called
+/// ~5× per element on every overlay build (4× in auto-placement + once for the view's
+/// intrinsic size), and overlay builds happen on every keystroke while filtering hints.
+/// Hint labels are short and there are only a handful of distinct ones, so a tiny memo
+/// keyed by font size + text collapses all of that to a single measurement each.
+/// Main-thread only — all overlay/label work runs on the main thread.
+enum LabelMetrics {
+    private static var textSizeCache: [String: CGSize] = [:]
+
+    /// Font size for a label, matching the rule used everywhere the bubble is drawn/measured.
+    static func fontSize(for label: String) -> CGFloat {
+        let base = CGFloat(AppSettings.shared.labelSize)
+        return label.count <= 2 ? max(8.5, base * 0.65) : max(7.5, base * 0.57)
+    }
+
+    /// Cached bare text size (depends only on the text and font size).
+    static func textSize(_ text: String, fontSize: CGFloat) -> CGSize {
+        let key = "\(fontSize)|\(text)"
+        if let cached = textSizeCache[key] { return cached }
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: fontSize, weight: .bold)
+        ]
+        let size = (text as NSString).size(withAttributes: attrs)
+        textSizeCache[key] = size
+        return size
+    }
+
+    /// Full label bubble size (text + padding + pointer) for a given placement.
+    static func labelSize(for label: String, position: LabelPosition) -> CGSize {
+        guard !label.isEmpty else { return CGSize(width: 14, height: 14) }
+        let ts = textSize(label, fontSize: fontSize(for: label))
+        let bubbleW = ts.width + 5      // Compact horizontal padding
+        let bubbleH = ts.height + 2.5   // Compact vertical padding
+        let pointerH: CGFloat = 5.5     // Shortened pointer
+        switch position {
+        case .above, .below:
+            return CGSize(width: max(bubbleW, 14), height: bubbleH + pointerH)
+        case .left, .right:
+            return CGSize(width: max(bubbleW + pointerH, 14), height: bubbleH)
+        }
+    }
+}
+
 class LabelView: NSView {
 
     let label: String
@@ -59,7 +104,7 @@ class LabelView: NSView {
             }(),
         ]
 
-        let textSize = (label as NSString).size(withAttributes: attrs)
+        let textSize = LabelMetrics.textSize(label, fontSize: fontSize)
         let textRect = NSRect(
             x: rect.midX - textSize.width / 2,
             y: rect.midY - textSize.height / 2 - 0.5, // Shift down slightly for optical centering
@@ -74,8 +119,7 @@ class LabelView: NSView {
         guard !label.isEmpty, bounds.width > 1, bounds.height > 1 else { return }
 
         // Base font size from user setting; clamp for tiny multi-char labels
-        let baseFontSize = CGFloat(AppSettings.shared.labelSize)
-        let fontSize: CGFloat = label.count <= 2 ? max(8.5, baseFontSize * 0.65) : max(7.5, baseFontSize * 0.57)
+        let fontSize = LabelMetrics.fontSize(for: label)
         let pointerH: CGFloat = 5.5 // Shortened pointer
         let pointerW: CGFloat = 8
         let radius: CGFloat = 2.5 // Sharper corners for compact labels
@@ -234,25 +278,7 @@ class LabelView: NSView {
     }
 
     override var intrinsicContentSize: NSSize {
-        guard !label.isEmpty else { return NSSize(width: 14, height: 14) }
-        let baseFontSize = CGFloat(AppSettings.shared.labelSize)
-        let fontSize: CGFloat = label.count <= 2 ? max(8.5, baseFontSize * 0.65) : max(7.5, baseFontSize * 0.57)
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: fontSize, weight: .bold),
-        ]
-        let textSize = (label as NSString).size(withAttributes: attrs)
-        let bubbleW = textSize.width + 5 // Compact horizontal padding
-        let bubbleH = textSize.height + 2.5 // Compact vertical padding
-        let pointerH: CGFloat = 5.5 // Shortened pointer
-        
-        switch position {
-        case .above, .below:
-            let totalH = bubbleH + pointerH
-            return NSSize(width: max(bubbleW, 14), height: totalH)
-        case .left, .right:
-            let totalW = bubbleW + pointerH
-            return NSSize(width: max(totalW, 14), height: bubbleH)
-        }
+        LabelMetrics.labelSize(for: label, position: position)
     }
 
     func animateHit(completion: @escaping () -> Void) {

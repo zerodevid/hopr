@@ -240,7 +240,7 @@ final class HintMode: Mode {
             } else {
                 // autoClick disabled: show the single remaining label, let user confirm
                 currentCandidates = matches
-                overlayController.showLabels(for: matches)
+                overlayController.filterLabels(matching: matches)
                 SoundManager.shared.playKeyPress()
                 return true
             }
@@ -250,7 +250,7 @@ final class HintMode: Mode {
         // Show filtered labels, but do NOT start the auto-activate timer yet (wait for key release).
         if exactMatch != nil, !longerMatches.isEmpty {
             currentCandidates = matches
-            overlayController.showLabels(for: matches)
+            overlayController.filterLabels(matching: matches)
             SoundManager.shared.playKeyPress()
             return true
         }
@@ -258,7 +258,7 @@ final class HintMode: Mode {
         // Case 4: No exact match, multiple prefix matches → filter and wait
         if !matches.isEmpty {
             currentCandidates = matches
-            overlayController.showLabels(for: matches)
+            overlayController.filterLabels(matching: matches)
             SoundManager.shared.playKeyPress()
             return true
         }
@@ -266,7 +266,7 @@ final class HintMode: Mode {
         // Case 5: No match at all → reset
         typedPrefix = ""
         currentCandidates = allElements
-        overlayController.showLabels(for: allElements)
+        overlayController.filterLabels(matching: allElements)
         SoundManager.shared.playKeyMiss()
         return true
     }

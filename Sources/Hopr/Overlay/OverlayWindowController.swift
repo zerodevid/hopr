@@ -15,8 +15,14 @@ final class OverlayWindowController {
 
         guard !elements.isEmpty else { return }
 
-        // Map elements to their screen frames to avoid repeated coordinate calculations
-        let elementsWithFrames = elements.map { (elem: $0, frame: windowFrameFor($0)) }
+        // Map elements to their screen frames to avoid repeated coordinate calculations.
+        // `hasTitle` is precomputed once here rather than re-trimming the title string for
+        // every (element × position × other element) inside the auto-placement penalty loop.
+        let elementsWithFrames = elements.map {
+            (elem: $0,
+             frame: windowFrameFor($0),
+             hasTitle: !$0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
 
         // Calculate full screen bounds covering all elements
         var minX = CGFloat.greatestFiniteMagnitude
@@ -70,6 +76,7 @@ final class OverlayWindowController {
             let localScreenFrame = elementScreen.frame
             let localMidX = localScreenFrame.midX
             let localMidY = localScreenFrame.midY
+            let notch = notchRect(for: elementScreen)
 
             let position = determinePosition(
                 for: elem,
@@ -77,7 +84,8 @@ final class OverlayWindowController {
                 allElementsWithFrames: elementsWithFrames,
                 screenFrame: localScreenFrame,
                 screenMidX: localMidX,
-                screenMidY: localMidY
+                screenMidY: localMidY,
+                notchRect: notch
             )
 
             let labelView = LabelView(label: elem.label, position: position)
@@ -108,12 +116,25 @@ final class OverlayWindowController {
                 height: size.height
             )
 
-            let resolvedFrame = resolveOverlap(
+            var resolvedFrame = resolveOverlap(
                 proposedFrame: proposedFrame,
                 existingFrames: placedFrames,
                 screenFrame: localScreenFrame,
                 position: position
             )
+
+            // Steer labels out from behind the MacBook notch (camera housing). A label
+            // landing in this region is physically hidden, so drop it just below the
+            // notch and re-resolve against already-placed labels.
+            if let notch = notch, resolvedFrame.intersects(notch) {
+                resolvedFrame.origin.y = notch.minY - resolvedFrame.size.height - 2
+                resolvedFrame = resolveOverlap(
+                    proposedFrame: resolvedFrame,
+                    existingFrames: placedFrames,
+                    screenFrame: localScreenFrame,
+                    position: .below
+                )
+            }
 
             placedFrames.append(resolvedFrame)
             labelView.frame = resolvedFrame
@@ -136,6 +157,28 @@ final class OverlayWindowController {
         }
         mainWindow = win
         Self.bringHUDToFront()
+    }
+
+    /// Incremental filter for hint typing: keep the existing overlay and just hide the
+    /// labels that no longer match, instead of tearing down and rebuilding every label
+    /// view (and recomputing O(n²) placement + text measurement) on each keystroke.
+    /// Matching labels keep their original positions, so hints don't jitter as you type.
+    /// Falls back to a full rebuild if there's no overlay yet, or if a requested label
+    /// isn't already on screen (e.g. the candidate set grew after a background refresh).
+    func filterLabels(matching elements: [UIElement]) {
+        guard let container = mainWindow?.contentView else {
+            showLabels(for: elements)
+            return
+        }
+        let keep = Set(elements.map { $0.label })
+        var present = Set<String>()
+        for case let lv as LabelView in container.subviews {
+            present.insert(lv.label)
+            lv.isHidden = !keep.contains(lv.label)
+        }
+        if !keep.isSubset(of: present) {
+            showLabels(for: elements)
+        }
     }
 
     func setOverlayVisible(_ visible: Bool) {
@@ -620,10 +663,11 @@ final class OverlayWindowController {
     private func determinePosition(
         for elem: UIElement,
         elemFrame: NSRect,
-        allElementsWithFrames: [(elem: UIElement, frame: NSRect)],
+        allElementsWithFrames: [(elem: UIElement, frame: NSRect, hasTitle: Bool)],
         screenFrame: NSRect,
         screenMidX: CGFloat,
-        screenMidY: CGFloat
+        screenMidY: CGFloat,
+        notchRect: NSRect?
     ) -> LabelPosition {
         let placement = AppSettings.shared.hintPlacement
         
@@ -643,7 +687,7 @@ final class OverlayWindowController {
             var minPenalty: CGFloat = CGFloat.greatestFiniteMagnitude
             
             for pos in positions {
-                let size = labelSizeFor(label: elem.label, position: pos)
+                let size = LabelMetrics.labelSize(for: elem.label, position: pos)
                 
                 // Calculate proposed frame
                 let labelX: CGFloat
@@ -680,14 +724,18 @@ final class OverlayWindowController {
                     penalty += 1000 + (proposed.maxY - screenFrame.maxY) * 10
                 }
                 
+                // 1b. Notch penalty: a label drawn behind the camera housing is hidden.
+                if let notch = notchRect, proposed.intersects(notch) {
+                    penalty += 5000
+                }
+
                 // 2. Overlap penalty with other elements' bounding boxes (especially text/titles)
                 for other in allElementsWithFrames {
                     if other.elem.id == elem.id { continue }
                     let otherFrame = other.frame
                     
                     if proposed.intersects(otherFrame) {
-                        let hasTitle = !other.elem.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        if hasTitle {
+                        if other.hasTitle {
                             // Heavy penalty for covering text
                             penalty += 3000
                         } else {
@@ -735,40 +783,6 @@ final class OverlayWindowController {
         }
     }
 
-    private func labelSizeFor(label: String, position: LabelPosition) -> CGSize {
-        let baseFontSize = CGFloat(AppSettings.shared.labelSize)
-        let fontSize: CGFloat = label.count <= 2 ? max(8.5, baseFontSize * 0.65) : max(7.5, baseFontSize * 0.57)
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: fontSize, weight: .bold),
-        ]
-        let textSize = (label as NSString).size(withAttributes: attrs)
-        let bubbleW = textSize.width + 5
-        let bubbleH = textSize.height + 2.5
-        let pointerH: CGFloat = 5.5
-        
-        switch position {
-        case .above, .below:
-            return CGSize(width: max(bubbleW, 14), height: bubbleH + pointerH)
-        case .left, .right:
-            return CGSize(width: max(bubbleW + pointerH, 14), height: bubbleH)
-        }
-    }
-
-    /// Get screen frame for an AX frame — use NSApplication windows for accurate coordinates
-    private func getScreenFrameForAX(_ axFrame: CGRect) -> NSRect? {
-        // Try NSApplication windows first (accurate screen coordinates)
-        for window in NSApplication.shared.windows {
-            let wf = window.frame
-            // Match by approximate position and size
-            if abs(wf.origin.x - axFrame.origin.x) < 50 &&
-               abs(wf.size.width - axFrame.size.width) < 50 &&
-               wf.size.height > 100 {
-                return wf
-            }
-        }
-        return nil
-    }
-
     private func createOverlayWindow(frame: NSRect) -> NSWindow {
         let window = NSPanel(
             contentRect: frame,
@@ -789,21 +803,12 @@ final class OverlayWindowController {
 
     private func windowFrameFor(_ element: UIElement) -> NSRect {
         let axFrame = element.frame
-        if let accurate = getScreenFrameForAX(axFrame) {
-            return accurate
-        }
-
         let screen = NSScreen.screens.first(where: { $0.frame.contains(CGPoint(x: axFrame.midX, y: axFrame.midY)) })
             ?? NSScreen.main
             ?? NSScreen.screens.first
 
-        guard let screen = screen else {
-            let primaryHeight = 1080
-            let flippedY = CGFloat(primaryHeight) - axFrame.origin.y - axFrame.size.height
-            return NSRect(x: axFrame.origin.x, y: flippedY, width: axFrame.size.width, height: axFrame.size.height)
-        }
-
-        let flippedY = screen.frame.height - axFrame.origin.y - axFrame.size.height
+        let referenceHeight = screen?.frame.height ?? 1080
+        let flippedY = referenceHeight - axFrame.origin.y - axFrame.size.height
         return NSRect(
             x: axFrame.origin.x,
             y: flippedY,
@@ -812,28 +817,23 @@ final class OverlayWindowController {
         )
     }
 
-    private func scrollWindowFrameFor(_ axFrame: CGRect) -> NSRect {
-        // Try accurate NSWindow coordinates first
-        if let accurate = getScreenFrameForAX(axFrame) {
-            return accurate
+    /// The rectangle occupied by the camera housing ("notch") on screens that have one,
+    /// in global (bottom-left origin) coordinates matching `screen.frame`. Returns nil
+    /// for screens without a notch. Labels overlapping this region are physically hidden.
+    private func notchRect(for screen: NSScreen) -> NSRect? {
+        let inset = screen.safeAreaInsets.top
+        guard inset > 0,
+              let left = screen.auxiliaryTopLeftArea,
+              let right = screen.auxiliaryTopRightArea else {
+            return nil
         }
-        // Fallback: find screen containing the element or use main screen
-        let screen = NSScreen.screens.first(where: { $0.frame.contains(CGPoint(x: axFrame.midX, y: axFrame.midY)) })
-            ?? NSScreen.main
-            ?? NSScreen.screens.first
-
-        guard let screen = screen else {
-            let primaryHeight = 1080
-            let flippedY = CGFloat(primaryHeight) - axFrame.origin.y - axFrame.size.height
-            return NSRect(x: axFrame.origin.x, y: flippedY, width: axFrame.size.width, height: axFrame.size.height)
-        }
-
-        let flippedY = screen.frame.height - axFrame.origin.y - axFrame.size.height
+        let notchWidth = right.minX - left.maxX
+        guard notchWidth > 0 else { return nil }
         return NSRect(
-            x: axFrame.origin.x,
-            y: flippedY,
-            width: axFrame.size.width,
-            height: axFrame.size.height
+            x: left.maxX,
+            y: screen.frame.maxY - inset,
+            width: notchWidth,
+            height: inset
         )
     }
 
