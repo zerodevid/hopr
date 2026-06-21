@@ -53,7 +53,7 @@ Sebuah model pembungkus (`struct wrapper`) untuk pointer internal `AXUIElement` 
 #### `SoundManager.swift`
 Layanan utilitas audio global yang mengelola efek suara taktil (*tactile feedback*) secara asinkron menggunakan API `NSSound` macOS.
 *   **Umpan Balik Suara Instan**: Memainkan suara transisi saat berpindah mode (`playEnterMode()` memainkan `click7.m4a`) dan saat terjadi aktivasi/klik elemen (`playActivate()` memainkan `click1.m4a`). Tombol pengetikan reguler sengaja dibuat hening agar alur kerja tetap fokus dan tenang.
-*   **Mekanisme Resolusi Path Pintar**: Memeriksa folder `Resources/` di direktori kerja saat ini (*current directory*) terlebih dahulu untuk mengakomodasi lingkungan pengembangan lokal sebelum beralih ke jalur absolut cadangan (*fallback path*) di `/Users/macbook/Documents/Project/clone_hopr/Resources/`.
+*   **Mekanisme Resolusi Path Pintar**: Memeriksa folder `Resources/` di direktori kerja saat ini (*current directory*) terlebih dahulu untuk mengakomodasi lingkungan pengembangan lokal sebelum beralih ke jalur absolut cadangan (*fallback path*) di `/Users/macbook/Documents/Project/hopr/Resources/`.
 
 ---
 
@@ -108,7 +108,7 @@ Merupakan komponen krusial yang mengontrol antarmuka grafis di layar.
 
 #### `LabelView.swift` & `HighlightBoxView.swift` & `ScrollAreaBoxView.swift`
 Komponen visual kustom yang dirancang untuk estetika modern, responsif, dan performa tinggi:
-*   **`LabelView.swift`**: Menampilkan balon kata berisi kode label dengan warna kuning cerah premium terinspirasi dari aplikasi *Hopr*. Sudut visual dibuat lebih tajam (`xRadius: 2.5`), dan letak pointer vertikal disesuaikan secara cerdas (`above` vs `below` elemen) untuk mencegah pemotongan di batas layar. Menerapkan animasi transformasi skala (`scale = 1.4x`) dan pemudaran opacity asinkron melalui CoreAnimation saat elemen berhasil dieksekusi.
+*   **`LabelView.swift`**: Menampilkan balon kata berisi kode label dengan warna kuning cerah premium. Sudut visual dibuat lebih tajam (`xRadius: 2.5`), dan letak pointer vertikal disesuaikan secara cerdas (`above` vs `below` elemen) untuk mencegah pemotongan di batas layar. Menerapkan animasi transformasi skala (`scale = 1.4x`) dan pemudaran opacity asinkron melalui CoreAnimation saat elemen berhasil dieksekusi.
 *   **`HighlightBoxView`**: Menggambar kotak sorot semi-transparan dengan ketebalan border 3.0pt beraksen warna kontrol sistem (`controlAccentColor`), lengkap dengan efek cahaya (*drop shadow blur = 8.0*) untuk memperjelas elemen terfokus pada Search Mode. Pergeseran posisi antar elemen menggunakan animasi koordinat halus dari `NSAnimationContext`.
 *   **`ScrollAreaBoxView.swift`**: Menggambar bingkai area scroll aktif dengan skema warna hijau taktil (`systemGreen`) atau aksen sistem, serta badge pill nomor urutan di pojok kiri atas. Menerapkan efek animasi memantul (*bounce scale 1.06x*) instan saat area gulir dipilih oleh pengguna.
 *   **`ModeIndicator.swift`**: HUD melayang yang menampilkan status mode aktif saat ini. Menggunakan `NSVisualEffectView` dengan material `.hudWindow` untuk rendering efek kaca transparan yang menyatu dengan estetika macOS Ventura+.
@@ -161,7 +161,7 @@ Karena aplikasi menggunakan API `CGEvent.tapCreate` dan memerlukan status teperc
 
 ### 4.2 Ketergantungan Kompatibilitas Aplikasi Target
 *   **Masalah**: Beberapa aplikasi pihak ketiga (seperti aplikasi berbasis Electron atau Java Swing yang tidak mengimplementasikan protokol Aksesibilitas macOS dengan benar) tidak akan melaporkan koordinat elemen UI mereka ke `AccessibilityService`.
-*   **Solusi debug**: File pembantu [debug_ax.swift](file:///Users/macbook/Documents/Project/clone_hopr/debug_ax.swift) disediakan untuk memverifikasi apakah struktur pohon aplikasi target dapat dibaca oleh macOS atau tidak.
+*   **Solusi debug**: File pembantu [debug_ax.swift](file:///Users/macbook/Documents/Project/hopr/debug_ax.swift) disediakan untuk memverifikasi apakah struktur pohon aplikasi target dapat dibaca oleh macOS atau tidak.
 
 ### 4.3 Peningkatan Skalabilitas yang Direkomendasikan
 *   **Hover Event Simulation**: Saat ini, aplikasi hanya mendukung simulasi klik kiri. Menambahkan dukungan simulasi melayang (*hover*) dengan menahan tombol pengubah tertentu sebelum mengklik dapat sangat meningkatkan kenyamanan navigasi.

@@ -8,7 +8,7 @@ guard let app = NSWorkspace.shared.runningApplications.first(where: {
 print("App: \(app.localizedName!) PID: \(app.processIdentifier)")
 let appElement = AXUIElementCreateApplication(app.processIdentifier)
 
-// Enable accessibility for Electron (like Hopr does)
+// Enable accessibility for Electron
 let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
 _ = AXIsProcessTrustedWithOptions(options)
 

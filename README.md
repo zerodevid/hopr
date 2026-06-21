@@ -1,6 +1,6 @@
 # Hopr 🎹🖱️
 
-**Hopr** adalah aplikasi utilitas macOS yang dirancang untuk mempercepat alur kerja dengan memungkinkan kontrol keyboard penuh atas antarmuka pengguna grafis (GUI) tanpa menyentuh mouse. Terinspirasi oleh aplikasi *Hopr*, proyek ini menggunakan **Accessibility API (ApplicationServices)** dan **CoreGraphics Event Taps** untuk berinteraksi dengan elemen UI di layar secara instan.
+**Hopr** adalah aplikasi utilitas macOS yang dirancang untuk mempercepat alur kerja dengan memungkinkan kontrol keyboard penuh atas antarmuka pengguna grafis (GUI) tanpa menyentuh mouse. Proyek ini menggunakan **Accessibility API (ApplicationServices)** dan **CoreGraphics Event Taps** untuk berinteraksi dengan elemen UI di layar secara instan.
 
 Aplikasi ini berjalan sebagai aplikasi latar belakang tanpa ikon Dock (tipe `.accessory`) dengan ikon menu bar yang elegan, dan siap digunakan kapan saja melalui pintasan keyboard global.
 
@@ -118,7 +118,7 @@ Skrip ini mempermudah proses analisis dan debugging elemen UI mana saja yang dap
 ## 📄 Dokumentasi Tambahan
 
 Untuk analisis sistem yang mendalam mengenai alur kerja, pengoptimalan kinerja, dan detail implementasi teknis, silakan merujuk pada dokumen:
-*   [ARCHITECTURAL_DOCUMENTATION.md](file:///Users/macbook/Documents/Project/clone_hopr/ARCHITECTURAL_DOCUMENTATION.md)
+*   [ARCHITECTURAL_DOCUMENTATION.md](file:///Users/macbook/Documents/Project/hopr/ARCHITECTURAL_DOCUMENTATION.md)
 
 ---
 

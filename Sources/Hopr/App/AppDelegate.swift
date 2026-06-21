@@ -12,7 +12,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let mouseMode = MouseMode()
     private let focusTextMode = FocusTextMode()
     private let modeIndicator = ModeIndicator()
-    private var prefetchTimer: Timer?
+    private var reprimeWorkItem: DispatchWorkItem?
     private var menubarObserver: NSObjectProtocol?
     private var menubarAnimator: MenubarAnimator?
 
@@ -107,8 +107,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.focusTextMode.prefetch()
             self?.scrollMode.prefetch()
         }
-
-        setupPrefetchTimer()
 
         // Observe showMenubarIcon changes via UserDefaults so toggling in Settings takes effect immediately
         menubarObserver = NotificationCenter.default.addObserver(
@@ -300,14 +298,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         modeIndicator.show(mode: .hint, isLoading: false)
     }
 
-    private func setupPrefetchTimer() {
-        prefetchTimer = Timer.scheduledTimer(withTimeInterval: 4.0, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-            // Only prefetch periodically if the app is currently in idle mode
-            if self.modeController.currentMode == .idle {
-                AccessibilityService.shared.prefetch()
-            }
+    /// Re-prime the prefetch cache shortly after returning to idle so the next
+    /// activation in the same app stays instant — without the constant 24/7
+    /// background AX scanning that a repeating timer would cause. Debounced so
+    /// rapid mode toggles coalesce into a single scan.
+    private func scheduleReprime() {
+        reprimeWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self = self, self.modeController.currentMode == .idle else { return }
+            self.hintMode.prefetch()
+            self.focusTextMode.prefetch()
+            self.scrollMode.prefetch()
         }
+        reprimeWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
     }
 
     private func handleModeChange(_ mode: AppMode) {
@@ -328,6 +332,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             focusTextMode.deactivate()
             SoundManager.shared.playExitMode()
             menubarAnimator?.setExpression(.normal)
+            scheduleReprime()
         case .hint:
             hintMode.activate()
             menubarAnimator?.playSurprised()

@@ -25,7 +25,11 @@ final class MenubarAnimator {
     private var idleTimer: Timer?
     private var animationTimer: Timer?
     private var mouseTrackingTimer: Timer?
-    private var lastMouseLocation: NSPoint = .zero
+    /// Last eye offset actually drawn — used to skip redundant re-renders when the
+    /// cursor moves but the (quantized) eye position would not visibly change.
+    private var lastRenderedOffset = CGPoint(x: CGFloat.infinity, y: CGFloat.infinity)
+    /// Quantization step (in 2x CGContext pixels) for the eye-follow offset.
+    private let eyeQuantStep: CGFloat = 0.5
 
     // Icon dimensions (menu-bar native)
     private let iconSize = NSSize(width: 18, height: 18)
@@ -133,14 +137,37 @@ final class MenubarAnimator {
     }
 
     private func startMouseTracking() {
-        mouseTrackingTimer = Timer.scheduledTimer(withTimeInterval: 0.08, repeats: true) { [weak self] _ in
+        mouseTrackingTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             guard let self = self else { return }
-            let currentLoc = NSEvent.mouseLocation
-            if currentLoc != self.lastMouseLocation {
-                self.lastMouseLocation = currentLoc
-                self.button?.image = self.renderIcon(expression: self.currentExpression)
-            }
+            // Skip all work when the menu-bar icon isn't on screen (hidden via
+            // settings, or hidden by a full-screen Space) — nothing to redraw.
+            guard self.button?.window != nil else { return }
+            // Only re-render when the visible (quantized) eye position changes, so
+            // tiny cursor movements don't force constant menu-bar recompositing.
+            let offset = self.currentEyeOffset()
+            guard offset != self.lastRenderedOffset else { return }
+            self.button?.image = self.renderIcon(expression: self.currentExpression)
         }
+    }
+
+    /// Compute the eye-follow offset for the current cursor position, quantized so
+    /// sub-pixel movements collapse to the same value (avoiding needless redraws).
+    private func currentEyeOffset() -> CGPoint {
+        let screenFrame = NSScreen.main?.frame ?? NSRect(x: 0, y: 0, width: 1920, height: 1080)
+        let mouseLocation = NSEvent.mouseLocation
+
+        let centerX = screenFrame.midX
+        let centerY = screenFrame.midY
+
+        let dx = max(-1.0, min(1.0, (mouseLocation.x - centerX) / max(100.0, screenFrame.width / 2)))
+        let dy = max(-1.0, min(1.0, (mouseLocation.y - centerY) / max(100.0, screenFrame.height / 2)))
+
+        let maxOffsetX: CGFloat = 1.4
+        let maxOffsetY: CGFloat = 1.8
+
+        let qx = (dx * maxOffsetX / eyeQuantStep).rounded() * eyeQuantStep
+        let qy = (dy * maxOffsetY / eyeQuantStep).rounded() * eyeQuantStep
+        return CGPoint(x: qx, y: qy)
     }
 
     // MARK: - Sequence player
@@ -260,23 +287,11 @@ final class MenubarAnimator {
             ctx.draw(baseCG, in: CGRect(origin: .zero, size: s))
         }
 
-        // Calculate eye offset based on mouse position
-        let screenFrame = NSScreen.main?.frame ?? NSRect(x: 0, y: 0, width: 1920, height: 1080)
-        let mouseLocation = NSEvent.mouseLocation
-        
-        let centerX = screenFrame.midX
-        let centerY = screenFrame.midY
-        
-        // Normalize coordinates to [-1, 1] relative to screen center
-        let dx = max(-1.0, min(1.0, (mouseLocation.x - centerX) / max(100.0, screenFrame.width / 2)))
-        let dy = max(-1.0, min(1.0, (mouseLocation.y - centerY) / max(100.0, screenFrame.height / 2)))
-        
-        // maximum displacement in CGContext pixels (at 2x scale, head width is 36px)
-        let maxOffsetX: CGFloat = 1.4
-        let maxOffsetY: CGFloat = 1.8
-        
-        // Since only the vertical coordinate space is flipped in CGContext rendering relative to screen coordinates, keep dx positive and dy positive
-        let offset = CGPoint(x: dx * maxOffsetX, y: dy * maxOffsetY)
+        // Calculate eye offset based on mouse position (quantized, shared with the
+        // tracking timer's change detection). Record it so the timer can skip
+        // re-renders when the offset is unchanged.
+        let offset = currentEyeOffset()
+        lastRenderedOffset = offset
 
         // Always fill and redraw eyes to apply the offset dynamically
         fillOriginalEyes(ctx: ctx, size: s)

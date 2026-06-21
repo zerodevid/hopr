@@ -107,7 +107,7 @@ final class AccessibilityService {
         return CGRect(origin: p, size: s)
     }
 
-    /// Children in navigation order (Hopr technique), falling back to AXChildren.
+    /// Children in navigation order, falling back to AXChildren.
     private func axChildren(_ element: AXUIElement) -> [AXUIElement] {
         var ref: CFTypeRef?
         if AXUIElementCopyAttributeValue(element, "AXChildrenInNavigationOrder" as CFString, &ref) != .success {
@@ -117,7 +117,7 @@ final class AccessibilityService {
     }
 
     /// For tables/outlines, return only the rows currently on screen (AXVisibleRows) so a
-    /// 10k-row table costs the same to scan as a 10-row one — the way Hopr/Vimac do it.
+    /// 10k-row table costs the same to scan as a 10-row one.
     private func visibleRowsOrChildren(_ element: AXUIElement) -> [AXUIElement] {
         var ref: CFTypeRef?
         if AXUIElementCopyAttributeValue(element, "AXVisibleRows" as CFString, &ref) == .success,
@@ -220,7 +220,7 @@ final class AccessibilityService {
         // Try to extract browser elements via AppleScript for super-fast, viewport-only scan
         let browserElements = extractBrowserElements(frontApp: frontApp, appElement: appElement)
 
-        // Primary: fast predicate search (like Hopr) — one call per role, no tree traversal
+        // Primary: fast predicate search — one call per role, no tree traversal
         let searchKeys = [
             "AXButtonSearchKey",
             "AXCheckBoxSearchKey",
@@ -659,10 +659,10 @@ final class AccessibilityService {
         return kept
     }
 
-    // MARK: - Search Predicate (Hopr-style fast discovery)
+    // MARK: - Search Predicate (fast discovery)
 
     /// Use AXUIElementsForSearchPredicate to find actionable elements without tree traversal.
-    /// This is how Hopr achieves fast element discovery — system-level search, not manual traversal.
+    /// Fast element discovery via system-level search, not manual traversal.
     private func searchViaPredicate(appElement: AXUIElement, searchKeys: [String]) -> [UIElement] {
         var found: [UIElement] = []
         var seenTitles = Set<String>()
@@ -673,7 +673,7 @@ final class AccessibilityService {
                 "AXRecursive": true
             ]
 
-            // Try parameterized attribute first (Hopr's approach)
+            // Try parameterized attribute first
             var resultRef: CFTypeRef?
             let err = AXUIElementCopyParameterizedAttributeValue(
                 appElement,
@@ -930,7 +930,7 @@ final class AccessibilityService {
 
         // At the root, clip descendants to the root's own frame (the window / web-area
         // viewport) so off-screen and hidden panels are skipped instead of walked — the
-        // single biggest cost in deep Electron trees. (Hopr's clip-bounds technique.)
+        // single biggest cost in deep Electron trees. (clip-bounds technique.)
         var clip = clipBounds
         if depth == 0, clip.isNull, let rootFrame = axFrame(element), rootFrame.width > 0, rootFrame.height > 0 {
             clip = rootFrame
@@ -1479,7 +1479,7 @@ final class AccessibilityService {
         }
     }
 
-    /// Get the frontmost window directly (like Hopr's frontmostWindow)
+    /// Get the frontmost window directly
     private func getFrontmostWindow(from appElement: AXUIElement) -> AXUIElement? {
         var windowRef: CFTypeRef?
         if AXUIElementCopyAttributeValue(appElement, "AXFrontmostWindow" as CFString, &windowRef) == .success,
@@ -1507,8 +1507,8 @@ final class AccessibilityService {
 
     /// Roles whose subtrees never contain a scroll area. Descending into them is what made
     /// detection take seconds: a single note's AXTextArea exposes hundreds of AXStaticText /
-    /// AXImage children, and a list exposes hundreds of AXRow / AXCell. Hopr/Vimac never
-    /// walk content like this — we mirror that by treating these as leaves.
+    /// AXImage children, and a list exposes hundreds of AXRow / AXCell. We never
+    /// walk content like this — we treat these as leaves.
     private static let nonScrollableLeafRoles: Set<String> = [
         "AXStaticText", "AXImage", "AXButton", "AXMenuButton", "AXMenuItem",
         "AXCheckBox", "AXRadioButton", "AXPopUpButton", "AXSlider", "AXStepper",
@@ -1533,7 +1533,7 @@ final class AccessibilityService {
         let frame = axFrame(element)
 
         // Visibility prune: skip anything scrolled fully out of the visible clip rect, and
-        // its whole subtree along with it (Hopr's clip-bounds technique).
+        // its whole subtree along with it (clip-bounds technique).
         if let frame, !clipBounds.isNull, !clipBounds.isEmpty, !frame.intersects(clipBounds) {
             return
         }
