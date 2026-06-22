@@ -17,7 +17,7 @@
 set -euo pipefail
 
 APP_NAME="Hopr"
-VERSION="1.2.0"
+VERSION="1.0.0"
 VOL_NAME="$APP_NAME"
 DMG_NAME="$APP_NAME-$VERSION"
 

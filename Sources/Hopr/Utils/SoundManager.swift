@@ -6,7 +6,7 @@ final class SoundManager {
     private init() {}
 
     func playEnterMode() {
-        playSound(named: "click7.m4a", volume: 0.05)
+        playSound(named: "click7.m4a", volume: 0.22)
     }
 
     func playExitMode() {
@@ -22,7 +22,7 @@ final class SoundManager {
     }
 
     func playActivate() {
-        playSound(named: "click1.m4a", volume: 0.08)
+        playSound(named: "click1.m4a", volume: 0.30)
     }
 
     func playScrollTick() {

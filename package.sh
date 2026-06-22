@@ -21,8 +21,8 @@ set -euo pipefail
 
 APP_NAME="Hopr"
 BUNDLE_ID="com.hopr.app"
-VERSION="1.2.0"
-BUILD_NUMBER="2"
+VERSION="1.0.0"
+BUILD_NUMBER="1"
 MIN_MACOS="13.0"
 
 CONFIG="release"
