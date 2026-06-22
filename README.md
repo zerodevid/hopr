@@ -65,7 +65,7 @@ Hopr offers three keyboard-driven modes built for speed:
 Hopr is built with **Swift Package Manager (SPM)**.
 
 ```bash
-git clone https://github.com/<your-username>/hopr.git
+git clone https://github.com/zerodevid/hopr.git
 cd hopr
 ```
 
