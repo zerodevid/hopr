@@ -188,6 +188,8 @@ implementation, see [ARCHITECTURAL_DOCUMENTATION.md](ARCHITECTURAL_DOCUMENTATION
 
 ## 📜 License
 
-Copyright © 2026. Built for keyboard-driven macOS control.
+Hopr is open source under the [MIT License](LICENSE).
+
+Copyright © 2026 Zero Dev
 </content>
 </invoke>
