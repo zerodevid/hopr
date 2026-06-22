@@ -16,13 +16,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var menubarObserver: NSObjectProtocol?
     private var menubarAnimator: MenubarAnimator?
 
-    func applicationDidFinishLaunching(_ notification: Notification) {
-        if !Permissions.ensureAccessibility() {
-            Log.info("Waiting for accessibility permissions...")
-        } else {
-            Log.info("Accessibility permissions granted")
-        }
+    // Accessibility permission gating
+    private var permissionTimer: DispatchSourceTimer?
+    private var hotkeysStarted = false
+    private weak var permissionAlert: NSAlert?
 
+    func applicationDidFinishLaunching(_ notification: Notification) {
         applyDockIcon()
 
         setupStatusBar()
@@ -97,15 +96,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         )
 
         hotkeyManager = HotkeyManager(modeController: modeController)
-        if hotkeyManager.start() {
-            Log.info("Hopr started — Shift+Space (hint), Shift+J (scroll), Shift+/ (search)")
-        }
 
-        // Initial prefetch after a short delay to let the system settle
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-            self?.hintMode.prefetch()
-            self?.focusTextMode.prefetch()
-            self?.scrollMode.prefetch()
+        // The global hotkey tap can only be created while we're trusted for
+        // Accessibility. If it isn't granted yet, guide the user and poll in the
+        // background so the hotkeys light up the instant they flip the switch —
+        // no manual restart needed.
+        if !startHotkeysIfNeeded() {
+            Log.info("Waiting for accessibility permissions...")
+            beginPermissionPolling()
+            DispatchQueue.main.async { [weak self] in self?.showAccessibilityPrompt() }
         }
 
         // Observe showMenubarIcon changes via UserDefaults so toggling in Settings takes effect immediately
@@ -390,7 +389,104 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    // MARK: - Accessibility permission flow
+
+    /// Start the global hotkey tap (and prime caches) exactly once. Returns
+    /// false if the tap couldn't be created — almost always because
+    /// Accessibility isn't granted yet, in which case the poller retries.
+    @discardableResult
+    private func startHotkeysIfNeeded() -> Bool {
+        guard !hotkeysStarted else { return true }
+        guard hotkeyManager.start() else { return false }
+        hotkeysStarted = true
+        Log.info("Hopr started — Shift+Space (hint), Shift+J (scroll), Shift+/ (search)")
+
+        // Prime the caches so the first activation is instant.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            self?.hintMode.prefetch()
+            self?.focusTextMode.prefetch()
+            self?.scrollMode.prefetch()
+        }
+        return true
+    }
+
+    /// Poll for Accessibility permission off the main thread (so it keeps
+    /// checking even while the guidance alert is up) and switch the hotkeys on
+    /// the moment it's granted.
+    private func beginPermissionPolling() {
+        permissionTimer?.cancel()
+        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+        timer.schedule(deadline: .now() + 1.0, repeating: 1.0)
+        timer.setEventHandler { [weak self] in
+            guard Permissions.isAccessibilityGranted() else { return }
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                self.permissionTimer?.cancel()
+                self.permissionTimer = nil
+                // Dismiss the guidance alert if it's still on screen.
+                if self.permissionAlert != nil {
+                    NSApp.abortModal()
+                    self.permissionAlert = nil
+                }
+                self.startHotkeysIfNeeded()
+                self.confirmReady()
+            }
+        }
+        timer.resume()
+        permissionTimer = timer
+    }
+
+    /// First-run guidance: explain why the permission is needed and drop the
+    /// user straight onto the right Settings pane. Polling handles the rest.
+    private func showAccessibilityPrompt() {
+        guard !hotkeysStarted else { return }
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "Enable Hopr"
+        alert.informativeText = """
+        Hopr needs Accessibility access to read on-screen controls and capture your keyboard shortcuts.
+
+        Click “Open Settings”, then turn on Hopr under Privacy & Security → Accessibility. Hopr starts the moment you flip the switch — no restart needed.
+        """
+        alert.addButton(withTitle: "Open Settings")
+        alert.addButton(withTitle: "Quit")
+        permissionAlert = alert
+
+        NSApp.activate(ignoringOtherApps: true)
+        let response = alert.runModal()
+        permissionAlert = nil
+
+        switch response {
+        case .alertFirstButtonReturn:
+            openAccessibilitySettings()
+        case .alertSecondButtonReturn:
+            NSApp.terminate(nil)
+        default:
+            break // aborted by the poller — permission already granted
+        }
+    }
+
+    private func openAccessibilitySettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    /// Brief, auto-dismissing confirmation once the hotkeys are live.
+    private func confirmReady() {
+        SoundManager.shared.playExitMode()
+        modeIndicator.updatePill(
+            icon: "checkmark.circle.fill",
+            text: "Hopr is ready — ⇧Space hint · ⇧J scroll · ⇧/ search",
+            color: .systemGreen
+        )
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
+            self?.modeIndicator.hide()
+        }
+    }
+
     deinit {
+        permissionTimer?.cancel()
         if let observer = menubarObserver {
             NotificationCenter.default.removeObserver(observer)
         }

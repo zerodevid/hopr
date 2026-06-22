@@ -44,7 +44,14 @@ fastlane/test_output
 
 # Local Scratch & Development Files
 scratch/
+debug_*.swift
 *.swp
 *~
 .DS_Store
+
+# Build output / distribution artifacts
+dist/
+
+# Next.js (landing page lives in a separate repo now)
+.next/
 
