@@ -5,7 +5,7 @@ final class AppSettings: ObservableObject {
     static let shared = AppSettings()
 
     // General — label color stored as hex string; replaces the old "theme" enum
-    @AppStorage("labelBgColorHex") var labelBgColorHex: String = "#FCDF22"  // classic yellow default
+    @AppStorage("labelBgColorHex") var labelBgColorHex: String = "#007AFF"  // system blue default
     @AppStorage("labelSize") var labelSize: Double = 14
     @AppStorage("showMenubarIcon") var showMenubarIcon: Bool = true
     @AppStorage("modeIndicatorPosition") var modeIndicatorPosition: String = "top"
@@ -205,7 +205,7 @@ final class AppSettings: ObservableObject {
     // MARK: - Reset Settings Helpers
 
     func resetGeneralSettings() {
-        labelBgColorHex = "#FCDF22"
+        labelBgColorHex = "#007AFF"
         labelSize = 14
         showMenubarIcon = true
         modeIndicatorPosition = "top"
