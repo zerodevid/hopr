@@ -2,7 +2,7 @@
   <img src="assets/logo.svg" alt="Hopr logo" width="128" height="128" />
 </p>
 
-<h1 align="center">Hopr 🎹🖱️</h1>
+<h1 align="center">Hopr</h1>
 
 <p align="center">
   Control your entire macOS UI from the keyboard — no mouse required.

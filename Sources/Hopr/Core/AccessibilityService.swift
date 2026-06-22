@@ -77,6 +77,13 @@ final class AccessibilityService {
     private let cacheQueue = DispatchQueue(label: "com.hopr.ax-cache")
     private static let scanQueue = DispatchQueue(label: "com.hopr.ax-scan", qos: .userInitiated)
 
+    /// Our own process id. Querying our OWN accessibility tree is serviced
+    /// in-process on the calling thread, which runs AppKit/SwiftUI accessibility
+    /// code. On macOS 26 that code asserts main-actor isolation and crashes when
+    /// hit from a background scan queue. We never need to operate on our own UI,
+    /// so every scan entry point skips our own process.
+    private let ownPID: pid_t = getpid()
+
     private init() {}
 
     // MARK: - AX Value Helpers
@@ -189,6 +196,8 @@ final class AccessibilityService {
     func getActionableElements(for app: NSRunningApplication? = nil) -> [UIElement] {
         let frontApp = app ?? NSWorkspace.shared.frontmostApplication
         let currentPID = frontApp?.processIdentifier ?? 0
+        // Never scan our own UI off the main thread — see ownPID note.
+        if currentPID == ownPID { return [] }
         let now = CACurrentMediaTime()
 
         // Return cache if still fresh AND same app
@@ -298,6 +307,8 @@ final class AccessibilityService {
     func getTextInputElements(for app: NSRunningApplication? = nil) -> [UIElement] {
         let frontApp = app ?? NSWorkspace.shared.frontmostApplication
         let currentPID = frontApp?.processIdentifier ?? 0
+        // Never scan our own UI off the main thread — see ownPID note.
+        if currentPID == ownPID { return [] }
         let now = CACurrentMediaTime()
 
         // Check cache first (using separate text-only cache)
@@ -862,6 +873,8 @@ final class AccessibilityService {
         let targetApp = app ?? NSWorkspace.shared.frontmostApplication
         guard let targetApp = targetApp else { return }
         let pid = targetApp.processIdentifier
+        // Never scan our own UI off the main thread — see ownPID note.
+        if pid == ownPID { return }
         let bundleID = targetApp.bundleIdentifier ?? "unknown"
 
         AccessibilityService.scanQueue.async { [weak self] in
@@ -1206,6 +1219,8 @@ final class AccessibilityService {
     func getAllScrollAreas(for app: NSRunningApplication? = nil) -> [ScrollableArea] {
         guard let frontApp = app ?? NSWorkspace.shared.frontmostApplication else { return [] }
         let currentPID = frontApp.processIdentifier
+        // Never scan our own UI off the main thread — see ownPID note.
+        if currentPID == ownPID { return [] }
         let now = CACurrentMediaTime()
 
         // Return cached areas if fresh (same TTL as Hint/Search). Lets app-switch prefetch
