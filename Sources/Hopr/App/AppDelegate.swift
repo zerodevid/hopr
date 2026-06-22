@@ -98,10 +98,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         hotkeyManager = HotkeyManager(modeController: modeController)
 
         // The global hotkey tap can only be created while we're trusted for
-        // Accessibility. If it isn't granted yet, guide the user and poll in the
-        // background so the hotkeys light up the instant they flip the switch —
-        // no manual restart needed.
-        if !startHotkeysIfNeeded() {
+        // Accessibility. Crucially, we must NOT call start() before that —
+        // CGEvent.tapCreate on an untrusted process pops macOS's own "would
+        // like to control this computer" dialog, which would stack on top of
+        // our guidance alert (two prompts). So: gate start() behind the trust
+        // check, show one guidance alert, and poll in the background. The
+        // hotkeys light up the instant the switch is flipped — no restart.
+        if Permissions.isAccessibilityGranted() {
+            startHotkeysIfNeeded()
+        } else {
             Log.info("Waiting for accessibility permissions...")
             beginPermissionPolling()
             DispatchQueue.main.async { [weak self] in self?.showAccessibilityPrompt() }
