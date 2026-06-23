@@ -1,0 +1,9 @@
+node_modules/
+out/
+.remotion/
+*.log
+.DS_Store
+
+# Local demo footage (large); keep the folder + its README
+public/footage/*
+!public/footage/README.md

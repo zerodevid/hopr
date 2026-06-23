@@ -1,0 +1,27 @@
+{
+  "name": "hopr-video",
+  "version": "1.0.0",
+  "description": "Remotion product video for Hopr — clean, modern 3D promo (hook + demo).",
+  "private": true,
+  "scripts": {
+    "dev": "remotion studio",
+    "studio": "remotion studio",
+    "render": "remotion render HoprPromo out/hopr-promo.mp4 --image-format=png",
+    "render:teaser": "remotion render HoprTeaser out/hopr-teaser.mp4 --image-format=png",
+    "still": "remotion still HoprPromo out/poster.png --frame=90",
+    "upgrade": "remotion upgrade"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.482",
+    "@remotion/google-fonts": "4.0.482",
+    "@remotion/transitions": "^4.0.482",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "remotion": "4.0.482"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.7.0"
+  }
+}
