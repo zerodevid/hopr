@@ -187,7 +187,7 @@ final class HintMode: Mode {
                 typedPrefix.removeLast()
                 let matches = allElements.filter { $0.label.hasPrefix(typedPrefix) }
                 currentCandidates = typedPrefix.isEmpty ? allElements : matches
-                overlayController.filterLabels(matching: currentCandidates)
+                overlayController.filterLabels(matching: currentCandidates, typedPrefix: typedPrefix)
                 SoundManager.shared.playKeyPress()
             }
             return true
@@ -252,7 +252,7 @@ final class HintMode: Mode {
             } else {
                 // autoClick disabled: show the single remaining label, let user confirm
                 currentCandidates = matches
-                overlayController.filterLabels(matching: matches)
+                overlayController.filterLabels(matching: matches, typedPrefix: typedPrefix)
                 SoundManager.shared.playKeyPress()
                 return true
             }
@@ -262,7 +262,7 @@ final class HintMode: Mode {
         // Show filtered labels, but do NOT start the auto-activate timer yet (wait for key release).
         if exactMatch != nil, !longerMatches.isEmpty {
             currentCandidates = matches
-            overlayController.filterLabels(matching: matches)
+            overlayController.filterLabels(matching: matches, typedPrefix: typedPrefix)
             SoundManager.shared.playKeyPress()
             return true
         }
@@ -270,7 +270,7 @@ final class HintMode: Mode {
         // Case 4: No exact match, multiple prefix matches → filter and wait
         if !matches.isEmpty {
             currentCandidates = matches
-            overlayController.filterLabels(matching: matches)
+            overlayController.filterLabels(matching: matches, typedPrefix: typedPrefix)
             SoundManager.shared.playKeyPress()
             return true
         }
@@ -507,9 +507,12 @@ final class HintMode: Mode {
 
             DispatchQueue.main.async {
                 guard self.isActive else { return }
-                let merged = self.allElements + KeyMapper.assignLabels(to: overlays, for: self.activeBundleID)
+                // Re-label the full merged set together so all labels have uniform length.
+                // Labeling overlays separately would produce shorter labels (fewer items)
+                // and mix 1-char and 2-char labels in the same session.
+                let merged = KeyMapper.assignLabels(to: appElements + overlays, for: self.activeBundleID)
                 self.allElements = merged
-                
+
                 if self.typedPrefix.isEmpty {
                     self.currentCandidates = merged
                     self.overlayController.showLabels(for: merged)

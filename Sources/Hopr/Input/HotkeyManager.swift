@@ -164,11 +164,6 @@ final class HotkeyManager {
             return Unmanaged.passUnretained(event)
         }
 
-        // Pass through any events with Command or Control modifiers to let system/app shortcuts (like Cmd+Shift+4) work
-        if cmdPressed || ctrlPressed {
-            return Unmanaged.passUnretained(event)
-        }
-
         // Escape → back to idle
         if keyCode == kVK_Escape {
             modeController?.deactivateCurrentMode()

@@ -165,9 +165,10 @@ final class OverlayWindowController {
     /// Matching labels keep their original positions, so hints don't jitter as you type.
     /// Falls back to a full rebuild if there's no overlay yet, or if a requested label
     /// isn't already on screen (e.g. the candidate set grew after a background refresh).
-    func filterLabels(matching elements: [UIElement]) {
+    func filterLabels(matching elements: [UIElement], typedPrefix: String = "") {
         guard let container = mainWindow?.contentView else {
             showLabels(for: elements)
+            applyTypedPrefix(typedPrefix)
             return
         }
         let keep = Set(elements.map { $0.label })
@@ -178,6 +179,14 @@ final class OverlayWindowController {
         }
         if !keep.isSubset(of: present) {
             showLabels(for: elements)
+        }
+        applyTypedPrefix(typedPrefix)
+    }
+
+    private func applyTypedPrefix(_ prefix: String) {
+        guard let container = mainWindow?.contentView else { return }
+        for case let lv as LabelView in container.subviews where !lv.isHidden {
+            lv.typedPrefix = prefix
         }
     }
 

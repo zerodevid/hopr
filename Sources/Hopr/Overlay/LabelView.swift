@@ -57,9 +57,10 @@ class LabelView: NSView {
     let label: String
     private let position: LabelPosition
     var isHit = false {
-        didSet {
-            needsDisplay = true
-        }
+        didSet { needsDisplay = true }
+    }
+    var typedPrefix: String = "" {
+        didSet { if typedPrefix != oldValue { needsDisplay = true } }
     }
 
     init(label: String, position: LabelPosition = .above) {
@@ -93,8 +94,37 @@ class LabelView: NSView {
         textShadow.shadowOffset = CGSize(width: 0, height: -0.75)
         textShadow.shadowBlurRadius = 0.5
 
+        let font = NSFont.systemFont(ofSize: fontSize, weight: .bold)
+        let textSize = LabelMetrics.textSize(label, fontSize: fontSize)
+        let textRect = NSRect(
+            x: rect.midX - textSize.width / 2,
+            y: rect.midY - textSize.height / 2 - 0.5,
+            width: textSize.width,
+            height: textSize.height
+        )
+
+        // Split rendering: dim the already-typed prefix, keep remaining at full brightness
+        let prefixLen = typedPrefix.count
+        if !isHit && prefixLen > 0 && prefixLen < label.count
+            && label.uppercased().hasPrefix(typedPrefix.uppercased()) {
+
+            let attrStr = NSMutableAttributedString(string: label)
+            attrStr.addAttributes([
+                .font: font,
+                .foregroundColor: textColor.withAlphaComponent(0.4),
+                .shadow: textShadow,
+            ], range: NSRange(location: 0, length: prefixLen))
+            attrStr.addAttributes([
+                .font: font,
+                .foregroundColor: textColor,
+                .shadow: textShadow,
+            ], range: NSRange(location: prefixLen, length: label.count - prefixLen))
+            attrStr.draw(in: textRect)
+            return
+        }
+
         let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: fontSize, weight: .bold),
+            .font: font,
             .foregroundColor: textColor,
             .shadow: textShadow,
             .paragraphStyle: {
@@ -103,14 +133,6 @@ class LabelView: NSView {
                 return ps
             }(),
         ]
-
-        let textSize = LabelMetrics.textSize(label, fontSize: fontSize)
-        let textRect = NSRect(
-            x: rect.midX - textSize.width / 2,
-            y: rect.midY - textSize.height / 2 - 0.5, // Shift down slightly for optical centering
-            width: textSize.width,
-            height: textSize.height
-        )
         (label as NSString).draw(in: textRect, withAttributes: attrs)
     }
 
