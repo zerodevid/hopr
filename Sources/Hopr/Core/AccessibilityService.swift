@@ -853,7 +853,9 @@ final class AccessibilityService {
 
     func clearCache(for pid: pid_t) {
         cacheQueue.sync {
-            _ = cacheMap.removeValue(forKey: pid)
+            cacheMap.removeValue(forKey: pid)
+            scrollAreaCacheMap.removeValue(forKey: pid)
+            textElementCacheMap.removeValue(forKey: pid)
         }
     }
 
@@ -1179,11 +1181,19 @@ final class AccessibilityService {
             }
 
             if let overlapId = foundOverlap {
-                let oldElem = keptDict[overlapId]!
+                guard let oldElem = keptDict[overlapId] else {
+                    // Stale key — element was already replaced; treat as no overlap.
+                    keptDict[elem.id] = elem
+                    kept.append(elem)
+                    continue
+                }
                 let elemPriority = rolePriority[elem.role] ?? 99
                 let oldPriority = rolePriority[oldElem.role] ?? 99
                 if elemPriority < oldPriority {
-                    keptDict[overlapId] = elem
+                    // Replace old element: remove its UUID key and register the new one so
+                    // future overlap checks via kept[].id resolve correctly in keptDict.
+                    keptDict.removeValue(forKey: overlapId)
+                    keptDict[elem.id] = elem
                     if let idx = kept.firstIndex(where: { $0.id == overlapId }) {
                         kept[idx] = elem
                     }

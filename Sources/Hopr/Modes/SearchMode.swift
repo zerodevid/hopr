@@ -191,6 +191,22 @@ final class SearchMode: NSObject, NSTextFieldDelegate, Mode {
             return true
         }
 
+        // Tab / Shift+Tab: cycle through results without leaving the search field
+        if keyCode == 0x30 { // kVK_Tab = 48
+            if !filteredElements.isEmpty {
+                if modifiers.shift {
+                    selectedIndex = max(selectedIndex - 1, 0)
+                } else {
+                    selectedIndex = min(selectedIndex + 1, filteredElements.count - 1)
+                }
+                updateSelection()
+                SoundManager.shared.playKeyPress()
+            } else {
+                SoundManager.shared.playKeyMiss()
+            }
+            return true
+        }
+
         // Let all other keys (typing, delete, shortcuts like Cmd+A, copy/paste, arrow left/right) pass through to the native text field
         return false
     }

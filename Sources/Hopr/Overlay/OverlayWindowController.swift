@@ -803,12 +803,11 @@ final class OverlayWindowController {
 
     private func windowFrameFor(_ element: UIElement) -> NSRect {
         let axFrame = element.frame
-        let screen = NSScreen.screens.first(where: { $0.frame.contains(CGPoint(x: axFrame.midX, y: axFrame.midY)) })
-            ?? NSScreen.main
-            ?? NSScreen.screens.first
-
-        let referenceHeight = screen?.frame.height ?? 1080
-        let flippedY = referenceHeight - axFrame.origin.y - axFrame.size.height
+        // AX coordinates always use the primary screen's height as the Y-axis reference.
+        // Using a secondary screen's height here produces wrong label positions when
+        // monitors have different resolutions (e.g. primary 1080p + secondary 1440p).
+        let primaryHeight = NSScreen.screens.first?.frame.height ?? 1080
+        let flippedY = primaryHeight - axFrame.origin.y - axFrame.size.height
         return NSRect(
             x: axFrame.origin.x,
             y: flippedY,

@@ -58,8 +58,18 @@ final class ScrollMode: Mode {
                     numbered[i].number = showNumbers ? "\(i + 1)" : ""
                 }
                 self.scrollAreas = numbered
-                self.overlayController.showScrollAreaOverlays(for: numbered)
-                Log.info("Scroll mode: found \(numbered.count) scroll areas — press 1-\(numbered.count) to select")
+
+                // Skip the selection step when there is only one scrollable region.
+                if numbered.count == 1 {
+                    self.selectedArea = numbered[0]
+                    self.phase = .scrolling
+                    self.overlayController.showSelectedScrollArea(numbered[0], allAreas: numbered)
+                    SoundManager.shared.playActivate()
+                    Log.info("Scroll mode: auto-selected the only scroll area")
+                } else {
+                    self.overlayController.showScrollAreaOverlays(for: numbered)
+                    Log.info("Scroll mode: found \(numbered.count) scroll areas — press 1-\(numbered.count) to select")
+                }
             }
         }
     }

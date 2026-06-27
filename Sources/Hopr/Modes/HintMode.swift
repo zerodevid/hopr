@@ -181,6 +181,18 @@ final class HintMode: Mode {
             return true
         }
 
+        // Backspace: remove the last typed character and re-filter instead of full reset
+        if keyCode == 51 { // kVK_Delete
+            if !typedPrefix.isEmpty {
+                typedPrefix.removeLast()
+                let matches = allElements.filter { $0.label.hasPrefix(typedPrefix) }
+                currentCandidates = typedPrefix.isEmpty ? allElements : matches
+                overlayController.filterLabels(matching: currentCandidates)
+                SoundManager.shared.playKeyPress()
+            }
+            return true
+        }
+
         guard !key.isEmpty else { return false }
 
         // If it's a repeated keyDown (held down), ignore it
@@ -423,10 +435,15 @@ final class HintMode: Mode {
     }
 
     private func clampToScreen(_ point: CGPoint) -> CGPoint {
-        let screen = NSScreen.main?.frame ?? NSRect(x: 0, y: 0, width: 1920, height: 1080)
-        let clampedX = max(screen.minX, min(screen.maxX, point.x))
-        let clampedY = max(0, min(screen.height, point.y))
-        return CGPoint(x: clampedX, y: clampedY)
+        // nudgeDragPoint is in CG/AX coordinates (Y increases downward, origin = top of primary screen).
+        // CGDisplayPixels* gives the correct dimensions in that same coordinate space.
+        let mainDisplay = CGMainDisplayID()
+        let w = CGFloat(CGDisplayPixelsWide(mainDisplay))
+        let h = CGFloat(CGDisplayPixelsHigh(mainDisplay))
+        return CGPoint(
+            x: max(0, min(w, point.x)),
+            y: max(0, min(h, point.y))
+        )
     }
 
     /// Dismiss loading indicator, respecting minimum display time for UX consistency.
