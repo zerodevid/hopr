@@ -70,10 +70,61 @@ class LabelView: NSView {
         wantsLayer = true
         layer?.backgroundColor = NSColor.clear.cgColor
         layer?.masksToBounds = false
+        // Drop shadow — colored glow is drawn in draw() via NSGraphicsContext
         layer?.shadowColor = NSColor.black.cgColor
-        layer?.shadowOpacity = 0.45
-        layer?.shadowOffset = CGSize(width: 0, height: -2.5)
-        layer?.shadowRadius = 3.5
+        layer?.shadowOpacity = 0.35
+        layer?.shadowOffset = CGSize(width: 0, height: -2)
+        layer?.shadowRadius = 5
+    }
+
+    // MARK: - Animations
+
+    func animateIn() {
+        guard let layer = self.layer else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.opacity = 0
+        layer.transform = CATransform3DMakeScale(0.55, 0.55, 1.0)
+        CATransaction.commit()
+
+        let scale = CASpringAnimation(keyPath: "transform.scale")
+        scale.fromValue = 0.55
+        scale.toValue = 1.0
+        scale.damping = 16
+        scale.initialVelocity = 8
+        scale.mass = 0.55
+        scale.duration = scale.settlingDuration
+        scale.fillMode = .forwards
+        scale.isRemovedOnCompletion = false
+
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 0
+        fade.toValue = 1.0
+        fade.duration = 0.09
+        fade.fillMode = .forwards
+        fade.isRemovedOnCompletion = false
+
+        layer.add(scale, forKey: "animIn_scale")
+        layer.add(fade,  forKey: "animIn_opacity")
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + scale.settlingDuration) { [weak layer] in
+            layer?.removeAnimation(forKey: "animIn_scale")
+            layer?.removeAnimation(forKey: "animIn_opacity")
+            layer?.opacity = 1
+            layer?.transform = CATransform3DIdentity
+        }
+    }
+
+    func animatePulse() {
+        guard let layer = self.layer else { return }
+        let spring = CASpringAnimation(keyPath: "transform.scale")
+        spring.fromValue = 0.78
+        spring.toValue = 1.0
+        spring.damping = 11
+        spring.initialVelocity = 6
+        spring.mass = 0.5
+        spring.duration = spring.settlingDuration
+        layer.add(spring, forKey: "pulse")
     }
 
     required init?(coder: NSCoder) {
@@ -81,18 +132,13 @@ class LabelView: NSView {
     }
 
     private func drawText(in rect: NSRect, fontSize: CGFloat) {
-        let textColor: NSColor
-        if isHit {
-            textColor = .white
-        } else {
-            textColor = AppSettings.shared.labelThemeColors.text
-        }
-
+        let textColor: NSColor = isHit ? .white : AppSettings.shared.labelThemeColors.text
         let isLight = isHit ? false : AppSettings.shared.labelThemeColors.background.isPerceptuallyLight
-        let textShadow = NSShadow()
-        textShadow.shadowColor = isLight ? NSColor.white.withAlphaComponent(0.6) : NSColor.black.withAlphaComponent(0.5)
-        textShadow.shadowOffset = CGSize(width: 0, height: -0.75)
-        textShadow.shadowBlurRadius = 0.5
+
+        let baseShadow = NSShadow()
+        baseShadow.shadowColor = isLight ? NSColor.white.withAlphaComponent(0.6) : NSColor.black.withAlphaComponent(0.5)
+        baseShadow.shadowOffset = CGSize(width: 0, height: -0.75)
+        baseShadow.shadowBlurRadius = 0.5
 
         let font = NSFont.systemFont(ofSize: fontSize, weight: .bold)
         let textSize = LabelMetrics.textSize(label, fontSize: fontSize)
@@ -103,21 +149,27 @@ class LabelView: NSView {
             height: textSize.height
         )
 
-        // Split rendering: dim the already-typed prefix, keep remaining at full brightness
         let prefixLen = typedPrefix.count
-        if !isHit && prefixLen > 0 && prefixLen < label.count
-            && label.uppercased().hasPrefix(typedPrefix.uppercased()) {
+        let hasActivePrefix = !isHit && prefixLen > 0 && prefixLen < label.count
+            && label.uppercased().hasPrefix(typedPrefix.uppercased())
+
+        if hasActivePrefix {
+            // Remaining chars get a warm glow so they pop against the dimmed prefix
+            let remainingGlow = NSShadow()
+            remainingGlow.shadowColor = textColor.withAlphaComponent(0.65)
+            remainingGlow.shadowOffset = .zero
+            remainingGlow.shadowBlurRadius = 4.0
 
             let attrStr = NSMutableAttributedString(string: label)
             attrStr.addAttributes([
                 .font: font,
-                .foregroundColor: textColor.withAlphaComponent(0.4),
-                .shadow: textShadow,
+                .foregroundColor: textColor.withAlphaComponent(0.22),
+                .shadow: baseShadow,
             ], range: NSRange(location: 0, length: prefixLen))
             attrStr.addAttributes([
                 .font: font,
                 .foregroundColor: textColor,
-                .shadow: textShadow,
+                .shadow: remainingGlow,
             ], range: NSRange(location: prefixLen, length: label.count - prefixLen))
             attrStr.draw(in: textRect)
             return
@@ -126,7 +178,7 @@ class LabelView: NSView {
         let attrs: [NSAttributedString.Key: Any] = [
             .font: font,
             .foregroundColor: textColor,
-            .shadow: textShadow,
+            .shadow: baseShadow,
             .paragraphStyle: {
                 let ps = NSMutableParagraphStyle()
                 ps.alignment = .center
@@ -249,7 +301,7 @@ class LabelView: NSView {
         let bgColor: NSColor
         let borderColor: NSColor
         if isHit {
-            bgColor = NSColor(calibratedRed: 0.15, green: 0.85, blue: 0.35, alpha: 0.95) // Green on hit
+            bgColor = NSColor(calibratedRed: 0.15, green: 0.85, blue: 0.35, alpha: 0.95)
             borderColor = NSColor.white.withAlphaComponent(0.2)
         } else {
             let themeColors = AppSettings.shared.labelThemeColors
@@ -257,6 +309,19 @@ class LabelView: NSView {
             borderColor = themeColors.background.blended(withFraction: 0.35, of: .black)?.withAlphaComponent(0.45)
                 ?? NSColor.black.withAlphaComponent(0.2)
         }
+
+        // Colored glow — drawn BEFORE the bubble so it sits behind it.
+        // Uses an NSShadow with zero offset so it spreads as a halo.
+        NSGraphicsContext.saveGraphicsState()
+        let glowShadow = NSShadow()
+        glowShadow.shadowColor = bgColor.withAlphaComponent(isHit ? 0.75 : 0.55)
+        glowShadow.shadowBlurRadius = isHit ? 11 : 8
+        glowShadow.shadowOffset = .zero
+        glowShadow.set()
+        // Draw near-transparent fill — only the shadow (glow) is visible
+        bgColor.withAlphaComponent(0.01).setFill()
+        fullPath.fill()
+        NSGraphicsContext.restoreGraphicsState()
 
         // 3D vertical gradient (lighter at top, darker at bottom)
         let isLight = bgColor.isPerceptuallyLight

@@ -144,18 +144,21 @@ final class OverlayWindowController {
         win.contentView = container
         
         let wasVisible = mainWindow != nil
+        win.alphaValue = wasVisible ? 1.0 : 0.0
+        win.orderFrontRegardless()
+        mainWindow = win
+
         if !wasVisible {
-            win.alphaValue = 0.0
-            win.orderFrontRegardless()
+            // Fresh open: fade window in and spring-animate each label
             NSAnimationContext.runAnimationGroup({ context in
-                context.duration = 0.12
+                context.duration = 0.18
                 context.timingFunction = CAMediaTimingFunction(name: .easeOut)
                 win.animator().alphaValue = 1.0
             }, completionHandler: nil)
-        } else {
-            win.orderFrontRegardless()
+            for case let lv as LabelView in container.subviews {
+                lv.animateIn()
+            }
         }
-        mainWindow = win
         Self.bringHUDToFront()
     }
 
@@ -186,7 +189,12 @@ final class OverlayWindowController {
     private func applyTypedPrefix(_ prefix: String) {
         guard let container = mainWindow?.contentView else { return }
         for case let lv as LabelView in container.subviews where !lv.isHidden {
+            let prevCount = lv.typedPrefix.count
             lv.typedPrefix = prefix
+            // Pulse when a new char is added (label survived the filter)
+            if !prefix.isEmpty && prefix.count > prevCount {
+                lv.animatePulse()
+            }
         }
     }
 
