@@ -154,22 +154,30 @@ class LabelView: NSView {
             && label.uppercased().hasPrefix(typedPrefix.uppercased())
 
         if hasActivePrefix {
-            // Remaining chars get a warm glow so they pop against the dimmed prefix
-            let remainingGlow = NSShadow()
-            remainingGlow.shadowColor = textColor.withAlphaComponent(0.65)
-            remainingGlow.shadowOffset = .zero
-            remainingGlow.shadowBlurRadius = 4.0
+            // Active-char accent: amber on dark bubbles, deep orange on light bubbles.
+            // Chosen to be always distinct from the theme text color so it reads well
+            // regardless of which label color the user has configured.
+            let activeColor: NSColor = isLight
+                ? NSColor(calibratedRed: 0.90, green: 0.38, blue: 0.00, alpha: 1.0)   // deep orange
+                : NSColor(calibratedRed: 1.00, green: 0.85, blue: 0.10, alpha: 1.0)   // amber/yellow
+
+            let activeGlow = NSShadow()
+            activeGlow.shadowColor = activeColor.withAlphaComponent(0.70)
+            activeGlow.shadowOffset = .zero
+            activeGlow.shadowBlurRadius = 5.0
 
             let attrStr = NSMutableAttributedString(string: label)
+            // Already-typed chars → accent color (feedback: key was pressed)
             attrStr.addAttributes([
                 .font: font,
-                .foregroundColor: textColor.withAlphaComponent(0.22),
-                .shadow: baseShadow,
+                .foregroundColor: activeColor,
+                .shadow: activeGlow,
             ], range: NSRange(location: 0, length: prefixLen))
+            // Remaining chars → normal text color
             attrStr.addAttributes([
                 .font: font,
                 .foregroundColor: textColor,
-                .shadow: remainingGlow,
+                .shadow: baseShadow,
             ], range: NSRange(location: prefixLen, length: label.count - prefixLen))
             attrStr.draw(in: textRect)
             return
