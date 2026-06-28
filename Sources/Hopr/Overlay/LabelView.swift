@@ -59,42 +59,8 @@ class LabelView: NSView {
     var isHit = false {
         didSet { needsDisplay = true }
     }
-    /// Set by filterLabels — true while the label is animating/faded out of view.
-    var isFiltered = false
-
     var typedPrefix: String = "" {
-        didSet {
-            guard typedPrefix != oldValue else { return }
-            // Cross-fade the color change when a new char is typed
-            if typedPrefix.count > oldValue.count, let layer = self.layer {
-                let t = CATransition()
-                t.type = .fade
-                t.duration = 0.10
-                t.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                layer.add(t, forKey: "prefixFade")
-            }
-            // "Almost there": exactly 1 char remaining → pump animation
-            let remaining = label.count - typedPrefix.count
-            if remaining == 1 && typedPrefix.count > 0 && hasActivePrefix {
-                animateAlmostDone()
-            }
-            needsDisplay = true
-        }
-    }
-
-    // MARK: - Computed state
-
-    private var hasActivePrefix: Bool {
-        let n = typedPrefix.count
-        return !isHit && n > 0 && n < label.count
-            && label.uppercased().hasPrefix(typedPrefix.uppercased())
-    }
-
-    private var activeAccentColor: NSColor {
-        let isLight = AppSettings.shared.labelThemeColors.background.isPerceptuallyLight
-        return isLight
-            ? NSColor(calibratedRed: 0.90, green: 0.38, blue: 0.00, alpha: 1.0)  // deep orange
-            : NSColor(calibratedRed: 1.00, green: 0.85, blue: 0.10, alpha: 1.0)  // amber/yellow
+        didSet { if typedPrefix != oldValue { needsDisplay = true } }
     }
 
     init(label: String, position: LabelPosition = .above) {
@@ -152,32 +118,13 @@ class LabelView: NSView {
     func animatePulse() {
         guard let layer = self.layer else { return }
         let spring = CASpringAnimation(keyPath: "transform.scale")
-        spring.fromValue = 0.76
+        spring.fromValue = 0.78
         spring.toValue = 1.0
-        spring.damping = 9
-        spring.initialVelocity = 8
-        spring.mass = 0.45
+        spring.damping = 11
+        spring.initialVelocity = 6
+        spring.mass = 0.5
         spring.duration = spring.settlingDuration
         layer.add(spring, forKey: "pulse")
-    }
-
-    func animateAlmostDone() {
-        guard let layer = self.layer else { return }
-        // Quick pump: scale out and spring back
-        let scale = CAKeyframeAnimation(keyPath: "transform.scale")
-        scale.values = [1.0, 1.22, 0.95, 1.0]
-        scale.keyTimes = [0, 0.22, 0.62, 1.0]
-        scale.duration = 0.36
-        scale.timingFunction = CAMediaTimingFunction(name: .easeOut)
-        layer.add(scale, forKey: "almostDone")
-        // Glow burst
-        let shadowPulse = CABasicAnimation(keyPath: "shadowRadius")
-        shadowPulse.fromValue = 5
-        shadowPulse.toValue = 18
-        shadowPulse.duration = 0.12
-        shadowPulse.autoreverses = true
-        shadowPulse.timingFunction = CAMediaTimingFunction(name: .easeOut)
-        layer.add(shadowPulse, forKey: "shadowPulse")
     }
 
     required init?(coder: NSCoder) {
@@ -203,35 +150,34 @@ class LabelView: NSView {
         )
 
         let prefixLen = typedPrefix.count
+        let hasActivePrefix = !isHit && prefixLen > 0 && prefixLen < label.count
+            && label.uppercased().hasPrefix(typedPrefix.uppercased())
 
         if hasActivePrefix {
-            let activeColor = activeAccentColor
+            // Active-char accent: amber on dark bubbles, deep orange on light bubbles.
+            // Chosen to be always distinct from the theme text color so it reads well
+            // regardless of which label color the user has configured.
+            let activeColor: NSColor = isLight
+                ? NSColor(calibratedRed: 0.90, green: 0.38, blue: 0.00, alpha: 1.0)   // deep orange
+                : NSColor(calibratedRed: 1.00, green: 0.85, blue: 0.10, alpha: 1.0)   // amber/yellow
 
             let activeGlow = NSShadow()
-            activeGlow.shadowColor = activeColor.withAlphaComponent(0.75)
+            activeGlow.shadowColor = activeColor.withAlphaComponent(0.70)
             activeGlow.shadowOffset = .zero
-            activeGlow.shadowBlurRadius = 5.5
-
-            // Crisp glow on remaining chars so they read bright against the active bubble
-            let remainingGlow = NSShadow()
-            remainingGlow.shadowColor = textColor.withAlphaComponent(0.55)
-            remainingGlow.shadowOffset = .zero
-            remainingGlow.shadowBlurRadius = 3.5
+            activeGlow.shadowBlurRadius = 5.0
 
             let attrStr = NSMutableAttributedString(string: label)
-            // Typed chars → amber/accent + subtle letter spacing
+            // Already-typed chars → accent color (feedback: key was pressed)
             attrStr.addAttributes([
                 .font: font,
                 .foregroundColor: activeColor,
                 .shadow: activeGlow,
-                .kern: 0.5,
             ], range: NSRange(location: 0, length: prefixLen))
-            // Remaining chars → crisp bright text + letter spacing
+            // Remaining chars → normal text color
             attrStr.addAttributes([
                 .font: font,
                 .foregroundColor: textColor,
-                .shadow: remainingGlow,
-                .kern: 0.5,
+                .shadow: baseShadow,
             ], range: NSRange(location: prefixLen, length: label.count - prefixLen))
             attrStr.draw(in: textRect)
             return
@@ -365,11 +311,6 @@ class LabelView: NSView {
         if isHit {
             bgColor = NSColor(calibratedRed: 0.15, green: 0.85, blue: 0.35, alpha: 0.95)
             borderColor = NSColor.white.withAlphaComponent(0.2)
-        } else if hasActivePrefix {
-            let themeColors = AppSettings.shared.labelThemeColors
-            bgColor = themeColors.background.withAlphaComponent(0.95)
-            // Border glows amber when typing (#7)
-            borderColor = activeAccentColor.withAlphaComponent(0.62)
         } else {
             let themeColors = AppSettings.shared.labelThemeColors
             bgColor = themeColors.background.withAlphaComponent(0.95)
@@ -378,30 +319,22 @@ class LabelView: NSView {
         }
 
         // Colored glow — drawn BEFORE the bubble so it sits behind it.
-        // When typing, outer glow switches to amber to reinforce the active state (#7).
+        // Uses an NSShadow with zero offset so it spreads as a halo.
         NSGraphicsContext.saveGraphicsState()
         let glowShadow = NSShadow()
-        if isHit {
-            glowShadow.shadowColor = bgColor.withAlphaComponent(0.75)
-            glowShadow.shadowBlurRadius = 11
-        } else if hasActivePrefix {
-            glowShadow.shadowColor = activeAccentColor.withAlphaComponent(0.62)
-            glowShadow.shadowBlurRadius = 10
-        } else {
-            glowShadow.shadowColor = bgColor.withAlphaComponent(0.55)
-            glowShadow.shadowBlurRadius = 8
-        }
+        glowShadow.shadowColor = bgColor.withAlphaComponent(isHit ? 0.75 : 0.55)
+        glowShadow.shadowBlurRadius = isHit ? 11 : 8
         glowShadow.shadowOffset = .zero
         glowShadow.set()
+        // Draw near-transparent fill — only the shadow (glow) is visible
         bgColor.withAlphaComponent(0.01).setFill()
         fullPath.fill()
         NSGraphicsContext.restoreGraphicsState()
 
-        // 3D vertical gradient — deepen when typing to make bubble feel "active" (#8)
+        // 3D vertical gradient (lighter at top, darker at bottom)
         let isLight = bgColor.isPerceptuallyLight
-        let depthBoost: CGFloat = hasActivePrefix ? 0.08 : 0.0
-        let topBlend: CGFloat = (isLight ? 0.25 : 0.38) + depthBoost
-        let bottomBlend: CGFloat = (isLight ? 0.15 : 0.22) + depthBoost
+        let topBlend: CGFloat = isLight ? 0.25 : 0.38
+        let bottomBlend: CGFloat = isLight ? 0.15 : 0.22
         let topColor = bgColor.blended(withFraction: topBlend, of: .white) ?? bgColor
         let bottomColor = bgColor.blended(withFraction: bottomBlend, of: .black) ?? bgColor
 
