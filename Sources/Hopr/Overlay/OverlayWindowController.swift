@@ -178,7 +178,24 @@ final class OverlayWindowController {
         var present = Set<String>()
         for case let lv as LabelView in container.subviews {
             present.insert(lv.label)
-            lv.isHidden = !keep.contains(lv.label)
+            let shouldShow = keep.contains(lv.label)
+            if !shouldShow && !lv.isFiltered {
+                // Fade out non-matching labels (#4)
+                lv.isFiltered = true
+                NSAnimationContext.runAnimationGroup({ ctx in
+                    ctx.duration = 0.08
+                    ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                    lv.animator().alphaValue = 0.0
+                })
+            } else if shouldShow && lv.isFiltered {
+                // Fade back in if it matches again (e.g. backspace)
+                lv.isFiltered = false
+                NSAnimationContext.runAnimationGroup({ ctx in
+                    ctx.duration = 0.08
+                    ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                    lv.animator().alphaValue = 1.0
+                })
+            }
         }
         if !keep.isSubset(of: present) {
             showLabels(for: elements)
@@ -188,7 +205,7 @@ final class OverlayWindowController {
 
     private func applyTypedPrefix(_ prefix: String) {
         guard let container = mainWindow?.contentView else { return }
-        for case let lv as LabelView in container.subviews where !lv.isHidden {
+        for case let lv as LabelView in container.subviews where !lv.isFiltered {
             let prevCount = lv.typedPrefix.count
             lv.typedPrefix = prefix
             // Pulse when a new char is added (label survived the filter)
